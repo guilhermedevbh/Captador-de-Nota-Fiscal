@@ -37,7 +37,7 @@ O backend (`main.cjs`, `sefaz/`, `nfse/`) é o mesmo do aplicativo desktop. O ar
 
 ## Requisitos
 
-- [Node.js](https://nodejs.org/) 18 LTS ou superior
+- [Node.js](https://nodejs.org/) 22.5 ou superior
 
 ## Instalação e uso
 
@@ -72,13 +72,26 @@ O Vite (porta 5173) encaminha as chamadas `/api` para o servidor (porta 3000).
 | `HOST` | `127.0.0.1` | Endereço de escuta. Use `0.0.0.0` para liberar acesso pela rede |
 | `DATA_DIR` | `%APPDATA%/Captador de Notas Fiscais` | Pasta de dados (configurações, certificados enviados, banco de estado) |
 | `OPEN_FOLDERS` | `1` | Use `0` para não abrir pastas no explorador do servidor |
+| `APP_USER` | `admin` | Usuário do login |
+| `APP_PASSWORD` | — | Senha do login (obrigatória; sem ela ninguém entra) |
+| `SESSION_SECRET` | aleatório | Chave para assinar a sessão. Defina para manter o login após reiniciar |
 
 As notas fiscais baixadas ficam em `<DATA_DIR>/sefaz_empresas` (ou na pasta escolhida em *Configurações → Armazenamento*).
 
 ## Segurança
 
 - Por padrão o servidor só aceita conexões do próprio computador (`127.0.0.1`).
-- **Não há login.** Antes de expor o servidor na rede (`HOST=0.0.0.0`) ou na internet, coloque-o atrás de uma camada de autenticação e HTTPS (por exemplo, um proxy reverso), pois ele dá acesso aos certificados digitais e às notas das empresas.
+- Todas as páginas e a API exigem login (`APP_USER` / `APP_PASSWORD`). Sair: `/logout`.
+- Na internet, use sempre HTTPS (o Railway já fornece).
+
+## Deploy no Railway
+
+1. Em railway.app: **New Project → Deploy from GitHub repo** e escolha este repositório.
+2. Em **Variables**, defina `APP_USER`, `APP_PASSWORD`, `SESSION_SECRET` e `DATA_DIR=/data`.
+3. Em **Settings → Volumes**, crie um volume montado em `/data` (para não perder certificados e notas).
+4. Em **Settings → Networking**, clique em **Generate Domain**.
+
+O build (`npm run build`) e o start (`npm start`) já estão no `railway.json`.
 - O cadastro de empresas continua salvo no navegador (`localStorage`), como na versão desktop.
 
 ## Estrutura

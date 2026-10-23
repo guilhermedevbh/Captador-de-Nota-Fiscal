@@ -28,11 +28,109 @@ require('./main.cjs');
 const { APP_NAME, requestContext, ipcHandlers, eventListeners, userDataDir } = __web;
 
 const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || (process.env.RAILWAY_ENVIRONMENT ? '0.0.0.0' : '127.0.0.1');
 const DOWNLOAD_TTL_MS = 30 * 60 * 1000;
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
+
+// ------------------------------------------------------------------
+// Login (usuário e senha definidos por APP_USER / APP_PASSWORD)
+// ------------------------------------------------------------------
+const APP_USER = process.env.APP_USER || 'admin';
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const SESSION_COOKIE = 'captador_sessao';
+
+if (!APP_PASSWORD) {
+  console.warn('[Login] APP_PASSWORD não definida: o acesso ficará bloqueado até configurá-la.');
+}
+
+function sign(value) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
+}
+
+function safeEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+function readCookie(req, name) {
+  const header = req.headers.cookie || '';
+  for (const part of header.split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) return decodeURIComponent(v.join('='));
+  }
+  return null;
+}
+
+function isAuthenticated(req) {
+  const raw = readCookie(req, SESSION_COOKIE);
+  if (!raw) return false;
+  const [expires, sig] = raw.split('.');
+  if (!expires || !sig || Number(expires) < Date.now()) return false;
+  return safeEqual(sig, sign(expires));
+}
+
+function loginPage(error) {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entrar - ${APP_NAME}</title><style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
+form{background:#1e293b;padding:32px;border-radius:12px;width:100%;max-width:340px;box-shadow:0 10px 30px #0006}
+h1{font-size:20px;margin:0 0 20px}label{display:block;font-size:13px;margin:12px 0 4px}
+input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0}
+button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+.err{background:#7f1d1d;padding:8px 10px;border-radius:6px;font-size:13px}</style></head><body>
+<form method="post" action="/login"><h1>${APP_NAME}</h1>${error ? `<div class="err">${error}</div>` : ''}
+<label>Usuário</label><input name="usuario" autocomplete="username" required autofocus>
+<label>Senha</label><input name="senha" type="password" autocomplete="current-password" required>
+<button type="submit">Entrar</button></form></body></html>`;
+}
+
+const loginAttempts = new Map();
+
+app.get('/login', (req, res) => {
+  if (isAuthenticated(req)) return res.redirect('/');
+  res.type('html').send(loginPage());
+});
+
+app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
+  const ip = req.ip;
+  const now = Date.now();
+  const attempts = (loginAttempts.get(ip) || []).filter((t) => now - t < 15 * 60 * 1000);
+  if (attempts.length >= 10) {
+    return res.status(429).type('html').send(loginPage('Muitas tentativas. Aguarde alguns minutos.'));
+  }
+  const ok = APP_PASSWORD && safeEqual(req.body?.usuario || '', APP_USER) && safeEqual(req.body?.senha || '', APP_PASSWORD);
+  if (!ok) {
+    attempts.push(now);
+    loginAttempts.set(ip, attempts);
+    return res.status(401).type('html').send(loginPage('Usuário ou senha inválidos.'));
+  }
+  loginAttempts.delete(ip);
+  const expires = String(now + SESSION_TTL_MS);
+  res.cookie(SESSION_COOKIE, `${expires}.${sign(expires)}`, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: req.secure,
+    maxAge: SESSION_TTL_MS
+  });
+  res.redirect('/');
+});
+
+app.get('/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE);
+  res.redirect('/login');
+});
+
+app.use((req, res, next) => {
+  if (isAuthenticated(req)) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+  res.redirect('/login');
+});
 
 // Arquivos liberados para download/visualização (token -> arquivo)
 const servedFiles = new Map();
