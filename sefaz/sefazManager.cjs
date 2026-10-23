@@ -11,6 +11,7 @@ const SaeNfceService = require('./saeNfceService.cjs');
 const CteDistribuicaoService = require('./cteDistribuicao.cjs');
 const DacteService = require('./dacteService.cjs');
 const { getStateDatabase } = require('./stateDatabase.cjs');
+const { DATA_INICIAL_CAPTACAO, antesDoCorte } = require('./dataCorte.cjs');
 
 const UF_TO_IBGE = {
   RO: '11', AC: '12', AM: '13', RR: '14', PA: '15', AP: '16', TO: '17',
@@ -417,6 +418,10 @@ class SefazManager {
           }
 
           const parsed = storage.parseDoc(xmlContent);
+
+          if ((parsed.type === 'resNFe' || parsed.type === 'procNFe') && antesDoCorte({ chave: parsed.chNFe, data: parsed.dhEmi })) {
+            continue;
+          }
 
           if (parsed.type === 'resNFe') {
             const alreadyManifested = state.manifestedKeys && state.manifestedKeys[parsed.chNFe];
@@ -855,7 +860,9 @@ class SefazManager {
       });
     }
 
-    const chaves = await nfceService.listarChavesRecursivo(dataInicial, agora);
+    const dataCorte = new Date(`${DATA_INICIAL_CAPTACAO}T00:00:00-03:00`);
+    const chaves = (await nfceService.listarChavesRecursivo(dataInicial < dataCorte ? dataCorte : dataInicial, agora))
+      .filter((item) => !antesDoCorte({ chave: item.chNFe, data: item.dhEmi }));
     const totalLocalizadas = chaves.length;
 
     let totalBaixadas = 0;
@@ -1431,6 +1438,10 @@ class SefazManager {
 
     if (cleanKey.length !== 44) {
       throw new Error('A chave de acesso deve conter exatamente 44 dígitos numéricos.');
+    }
+
+    if (antesDoCorte({ chave: cleanKey })) {
+      throw new Error(`A captação está limitada a notas emitidas a partir de ${DATA_INICIAL_CAPTACAO.split('-').reverse().join('/')}.`);
     }
 
     const ufUpper = (company.uf || 'SP').toUpperCase();
@@ -2436,6 +2447,7 @@ class SefazManager {
           if (xml.includes('<CTe') || xml.includes('<cteProc')) {
             const chMatch = xml.match(/Id=["']CTe(\d{44})["']/i) || xml.match(/<chCTe>(\d{44})<\/chCTe>/i);
             const chCTe = chMatch ? chMatch[1] : `cte_${Date.now()}`;
+            if (antesDoCorte({ chave: chCTe, data: (xml.match(/<dhEmi>([^<]+)/) || [])[1] })) continue;
 
             let ym = 'indefinido';
             const mDate = xml.match(/<dhEmi>(\d{4}-\d{2})/);

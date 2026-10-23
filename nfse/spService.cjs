@@ -16,6 +16,7 @@ const { gerarChaveDedupNfse, indexarNotasExistentes } = require('./reportsNfse.c
 const PDFLib = require('pdf-lib');
 const qrcode = require('qrcode-generator');
 const { obterDiretorioDadosUsuario } = require('./cryptoUtils.cjs');
+const { DATA_INICIAL_CAPTACAO } = require('../sefaz/dataCorte.cjs');
 
 const BASE_DIR = obterDiretorioDadosUsuario();
 
@@ -244,6 +245,10 @@ async function consultarTomadasSP(empresa, pastaOutputRaiz, opcoes = {}) {
       periodos.push(...gerarDecendios(anoAtual, m, hojeISO));
     }
   }
+
+  periodos = periodos
+    .filter((p) => p.dtFim >= DATA_INICIAL_CAPTACAO)
+    .map((p) => (p.dtInicio < DATA_INICIAL_CAPTACAO ? { ...p, dtInicio: DATA_INICIAL_CAPTACAO } : p));
 
   const existingIndex = indexarNotasExistentes(pastaEmpresaCompleta, cleanCnpj);
 

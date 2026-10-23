@@ -9,6 +9,7 @@ const qrcode = require('qrcode-generator');
 const DANFSe = require('./danfse.cjs');
 const { decryptPassword, normalizarEExportarPfx } = require('./cryptoUtils.cjs');
 const { gerarChaveDedupNfse, indexarNotasExistentes } = require('./reportsNfse.cjs');
+const { antesDoCorte } = require('../sefaz/dataCorte.cjs');
 
 // =========================================================================
 // EMULAÇÃO DE NAVEGADOR PARA O DANFSe.JS EM AMBIENTE NODE
@@ -611,6 +612,7 @@ async function rodarCaptacaoNfseEmpresa({ company, companyOutputDir, onProgress,
 
       const xmlContent = decodeGzipBase64(doc.ArquivoXml);
       const meta = parseMeta(xmlContent) || { competenciaMes: '', dataEmissaoISO: '', numero: '' };
+      if (antesDoCorte({ data: meta.dataEmissaoISO })) continue;
 
       if (doc.TipoDocumento === 'EVENTO') {
         const descLower = (meta.eventoDesc || '').toLowerCase();
