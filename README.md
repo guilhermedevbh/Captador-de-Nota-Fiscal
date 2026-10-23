@@ -10,7 +10,7 @@
 
 ## Sobre
 
-O **Captador de Notas Fiscais** é a versão web do antigo aplicativo desktop (Electron) *CONT-AI*. Todas as funcionalidades foram mantidas:
+O **Captador de Notas Fiscais** é a versão web do aplicativo desktop (Electron). Todas as funcionalidades foram mantidas:
 
 - Painel de empresas (multi-CNPJ) com controle de validade de certificados A1
 - Guia geral de notas (NF-e, NFC-e, CT-e e NFS-e)
