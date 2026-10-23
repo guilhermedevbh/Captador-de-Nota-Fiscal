@@ -10,6 +10,7 @@ const DANFSe = require('./danfse.cjs');
 const { decryptPassword, normalizarEExportarPfx } = require('./cryptoUtils.cjs');
 const { gerarChaveDedupNfse, indexarNotasExistentes } = require('./reportsNfse.cjs');
 const { antesDoCorte } = require('../sefaz/dataCorte.cjs');
+const { resolverCertificado, MSG_CERT_AUSENTE } = require('../sefaz/certResolver.cjs');
 
 // =========================================================================
 // EMULAÇÃO DE NAVEGADOR PARA O DANFSe.JS EM AMBIENTE NODE
@@ -479,14 +480,14 @@ async function rodarCaptacaoNfseEmpresa({ company, companyOutputDir, onProgress,
   }
 
   const cleanCnpj = String(company.cnpj).replace(/\D/g, '');
-  let certPath = company.certPath;
+  let certPath = resolverCertificado(company.certPath, cleanCnpj) || company.certPath;
 
   if (!certPath || !fs.existsSync(certPath)) {
     const fallbackCert = path.join(process.env.APPDATA || '', 'contai-robo', 'certificados', `${cleanCnpj}.pfx`);
     if (fs.existsSync(fallbackCert)) {
       certPath = fallbackCert;
     } else {
-      throw new Error(`Certificado digital A1 não encontrado em: ${company.certPath}`);
+      throw new Error(`Certificado digital A1 não encontrado em: ${company.certPath}. ${MSG_CERT_AUSENTE}`);
     }
   }
 
