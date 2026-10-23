@@ -17,6 +17,7 @@ const PDFLib = require('pdf-lib');
 const qrcode = require('qrcode-generator');
 const { obterDiretorioDadosUsuario } = require('./cryptoUtils.cjs');
 const { DATA_INICIAL_CAPTACAO } = require('../sefaz/dataCorte.cjs');
+const { resolverCertificado, MSG_CERT_AUSENTE } = require('../sefaz/certResolver.cjs');
 
 const BASE_DIR = obterDiretorioDadosUsuario();
 
@@ -199,13 +200,13 @@ async function consultarTomadasSP(empresa, pastaOutputRaiz, opcoes = {}) {
   const cleanCnpj = (empresa.cnpj || '').replace(/\D/g, '');
   if (!cleanCnpj) throw new Error('CNPJ inválido ou não informado.');
 
-  let certPathSp = empresa.caminhoPfx || empresa.certPath;
+  let certPathSp = resolverCertificado(empresa.caminhoPfx || empresa.certPath, cleanCnpj) || empresa.caminhoPfx || empresa.certPath;
   if (!certPathSp || !fs.existsSync(certPathSp)) {
     const fallbackCert = path.join(process.env.APPDATA || '', 'contai-robo', 'certificados', `${cleanCnpj}.pfx`);
     if (fs.existsSync(fallbackCert)) {
       certPathSp = fallbackCert;
     } else {
-      throw new Error(`Certificado digital PFX não encontrado no caminho: ${empresa.caminhoPfx}`);
+      throw new Error(`Certificado digital PFX não encontrado no caminho: ${empresa.caminhoPfx}. ${MSG_CERT_AUSENTE}`);
     }
   }
 

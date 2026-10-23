@@ -1,5 +1,6 @@
 const fs = require('fs');
 const forge = require('node-forge');
+const { resolverCertificado, MSG_CERT_AUSENTE } = require('./certResolver.cjs');
 
 class CertManager {
   constructor(certPath, password) {
@@ -15,9 +16,11 @@ class CertManager {
   }
 
   load() {
-    if (!fs.existsSync(this.certPath)) {
-      throw new Error(`Arquivo de certificado não encontrado em: ${this.certPath}`);
+    const resolvido = resolverCertificado(this.certPath);
+    if (!resolvido) {
+      throw new Error(`Arquivo de certificado não encontrado em: ${this.certPath}. ${MSG_CERT_AUSENTE}`);
     }
+    this.certPath = resolvido;
 
     this.pfxBuffer = fs.readFileSync(this.certPath);
 
