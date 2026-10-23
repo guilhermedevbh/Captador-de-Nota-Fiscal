@@ -146,6 +146,40 @@ function saveSettings(settings) {
   }
 }
 
+// Retenção automática: apaga XMLs/PDFs captados há mais de RETENCAO_HORAS (padrão 24h; 0 desativa)
+const RETENCAO_HORAS = Number(process.env.RETENCAO_HORAS ?? 24);
+const EXTENSOES_RETENCAO = new Set(['.xml', '.pdf']);
+
+function limparNotasExpiradas() {
+  if (!(RETENCAO_HORAS > 0)) return;
+  const settings = loadSettings();
+  const raiz = settings.customStorageDir || defaultStorageDir;
+  const limite = Date.now() - RETENCAO_HORAS * 60 * 60 * 1000;
+  let removidos = 0;
+
+  const varrer = (dir) => {
+    let itens;
+    try { itens = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const item of itens) {
+      const caminho = path.join(dir, item.name);
+      if (item.isDirectory()) {
+        varrer(caminho);
+        try { if (fs.readdirSync(caminho).length === 0) fs.rmdirSync(caminho); } catch (_) {}
+      } else if (EXTENSOES_RETENCAO.has(path.extname(item.name).toLowerCase())) {
+        try {
+          if (fs.statSync(caminho).mtimeMs < limite) {
+            fs.unlinkSync(caminho);
+            removidos++;
+          }
+        } catch (_) {}
+      }
+    }
+  };
+
+  if (fs.existsSync(raiz)) varrer(raiz);
+  if (removidos > 0) console.log(`[Retenção] ${removidos} arquivo(s) com mais de ${RETENCAO_HORAS}h removido(s).`);
+}
+
 const currentSettings = loadSettings();
 const initialDataDir = (currentSettings.customStorageDir && typeof currentSettings.customStorageDir === 'string')
   ? currentSettings.customStorageDir
@@ -1777,6 +1811,9 @@ ipcMain.handle('app:export-diagnostics', async (event, { activeEmpresa } = {}) =
 // ----------------------------------------------------
 app.whenReady().then(() => {
   createWindow();
+
+  limparNotasExpiradas();
+  setInterval(limparNotasExpiradas, 15 * 60 * 1000);
 
   // Verificador dos Agendadores Diários por Modelo (executa a cada 30 segundos)
   setInterval(() => {

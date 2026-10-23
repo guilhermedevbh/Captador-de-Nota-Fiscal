@@ -76,6 +76,7 @@ O Vite (porta 5173) encaminha as chamadas `/api` para o servidor (porta 3000).
 | `APP_PASSWORD` | — | Senha do login (obrigatória; sem ela ninguém entra) |
 | `SESSION_SECRET` | aleatório | Chave para assinar a sessão. Defina para manter o login após reiniciar |
 | `CAPTACAO_DATA_INICIAL` | `2026-01-01` | Só capta notas emitidas a partir desta data (AAAA-MM-DD) |
+| `RETENCAO_HORAS` | `24` | Apaga os XMLs/PDFs captados após este número de horas (`0` desativa) |
 
 As notas fiscais baixadas ficam em `<DATA_DIR>/sefaz_empresas` (ou na pasta escolhida em *Configurações → Armazenamento*).
 
