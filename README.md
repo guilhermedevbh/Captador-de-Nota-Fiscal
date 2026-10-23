@@ -37,7 +37,7 @@ O backend (`main.cjs`, `sefaz/`, `nfse/`) é o mesmo do aplicativo desktop. O ar
 
 ## Requisitos
 
-- [Node.js](https://nodejs.org/) 18 LTS ou superior
+- [Node.js](https://nodejs.org/) 22.5 ou superior
 
 ## Instalação e uso
 
