@@ -84,7 +84,7 @@ h1{font-size:20px;margin:0 0 20px}label{display:block;font-size:13px;margin:12px
 input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0}
 button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
 .err{background:#7f1d1d;padding:8px 10px;border-radius:6px;font-size:13px}</style></head><body>
-<form method="post" action="/login"><h1>${APP_NAME}</h1>${error ? `<div class="err">${error}</div>` : ''}
+<form method="post" action="/login" onsubmit="try{sessionStorage.setItem('captador_auth','1')}catch(e){}"><h1>${APP_NAME}</h1>${error ? `<div class="err">${error}</div>` : ''}
 <label>Usuário</label><input name="usuario" autocomplete="username" required autofocus>
 <label>Senha</label><input name="senha" type="password" autocomplete="current-password" required>
 <button type="submit">Entrar</button></form></body></html>`;
@@ -115,8 +115,7 @@ app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
   res.cookie(SESSION_COOKIE, `${expires}.${sign(expires)}`, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: req.secure,
-    maxAge: SESSION_TTL_MS
+    secure: req.secure
   });
   res.redirect('/');
 });
