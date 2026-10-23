@@ -24,7 +24,7 @@ import {
 } from "./utils/calc";
 import { calculateDaysRemaining } from "./utils/certUtils";
 import DifalView from "./components/DifalView";
-import { Calculator, FileText, Layers, RefreshCw, CheckCircle2, Building2, Building, Printer, HelpCircle, DownloadCloud, ShieldCheck, Landmark, ShoppingBag, AlertCircle, Truck, Settings, FolderOpen } from "lucide-react";
+import { Calculator, FileText, Layers, RefreshCw, CheckCircle2, Building2, Building, Printer, HelpCircle, DownloadCloud, ShieldCheck, Landmark, ShoppingBag, AlertCircle, Truck, Settings, FolderOpen, LogOut } from "lucide-react";
 import ReportPrintModal from "./components/ReportPrintModal";
 import OnboardingModal from "./components/OnboardingModal";
 import CaptacaoView from "./components/CaptacaoView";
@@ -1017,6 +1017,19 @@ export default function App() {
               title="Guia de Utilização e Ajuda do Sistema"
             >
               <HelpCircle size={13} className="text-[#333333]" />
+            </button>
+
+            <div className="h-4 w-[1px] bg-[#b8b8b8] mx-0.5" />
+
+            <button
+              onClick={() => {
+                if (window.confirm("Deseja sair do sistema?")) window.location.href = "/logout";
+              }}
+              className="vb-top-btn"
+              title="Sair do sistema"
+            >
+              <LogOut size={12} className="text-[#b91c1c]" />
+              <span>Sair</span>
             </button>
           </div>
         </div>
