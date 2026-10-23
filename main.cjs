@@ -156,6 +156,7 @@ function limparNotasExpiradas() {
   const raiz = settings.customStorageDir || defaultStorageDir;
   const limite = Date.now() - RETENCAO_HORAS * 60 * 60 * 1000;
   let removidos = 0;
+  const empresasAfetadas = new Set();
 
   const varrer = (dir) => {
     let itens;
@@ -170,6 +171,7 @@ function limparNotasExpiradas() {
           if (fs.statSync(caminho).mtimeMs < limite) {
             fs.unlinkSync(caminho);
             removidos++;
+            empresasAfetadas.add(path.relative(raiz, caminho).split(path.sep)[0]);
           }
         } catch (_) {}
       }
@@ -178,6 +180,18 @@ function limparNotasExpiradas() {
 
   if (fs.existsSync(raiz)) varrer(raiz);
   if (removidos > 0) console.log(`[Retenção] ${removidos} arquivo(s) com mais de ${RETENCAO_HORAS}h removido(s).`);
+
+  // Zera o controle de NSU/cache das empresas afetadas para que a próxima consulta traga as notas novamente
+  for (const pasta of empresasAfetadas) {
+    const cnpj = (pasta.match(/\d{14}/) || [])[0];
+    if (!cnpj) continue;
+    try {
+      sefazManager.resetCompanyAllModelsNsu({ cnpj, razaoSocial: pasta, clearFiles: false, clearManifestations: false });
+      sefazManager.stateDb.clearMetadataCache(cnpj);
+    } catch (e) {
+      console.warn(`[Retenção] Falha ao redefinir controle de ${pasta}:`, e.message);
+    }
+  }
 }
 
 const currentSettings = loadSettings();
