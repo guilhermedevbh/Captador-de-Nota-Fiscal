@@ -327,7 +327,8 @@ class SefazManager {
     const isBlocked = blockedUntilMs > now;
     const remainingMinutes = Math.ceil((blockedUntilMs - now) / 60000);
 
-    if (isBlocked && !forceSync) {
+    const pularNsu = isBlocked && !forceSync;
+    if (pularNsu && this.listarNfePendentes(state).length === 0) {
       const reason = state.lastCStat === '656'
         ? 'Aviso da SEFAZ: Consumo Indevido (Rejeição 656)'
         : 'SEFAZ já confirmou que não há novos documentos (cStat 137)';
@@ -367,9 +368,36 @@ class SefazManager {
       ambiente
     });
 
-    let continuar = true;
+    let continuar = !pularNsu;
     let totalBaixadas = 0;
     let totalManifestadas = 0;
+
+    const salvarProcNFe = async (parsed, xmlContent) => {
+      const saveRes = storage.saveFullXml(parsed.chNFe, xmlContent, {
+        dhEmi: parsed.dhEmi,
+        ufEmit: parsed.ufEmit,
+        ufDest: parsed.ufDest || company.uf
+      });
+      const savedPath = saveRes.filePath;
+      const pdfPath = savedPath.replace('-nfe.xml', '-danfe.pdf').replace('.xml', '-danfe.pdf');
+      try {
+        await danfe.gerarDanfeFromFile(savedPath, pdfPath);
+      } catch (_) {}
+
+      state.downloadedKeys = state.downloadedKeys || {};
+      state.downloadedKeys[parsed.chNFe] = {
+        date: new Date().toISOString(),
+        filePath: savedPath,
+        pdfPath: fs.existsSync(pdfPath) ? pdfPath : undefined,
+        emitente: parsed.xNomeEmitente,
+        cnpjEmitente: parsed.cnpjEmitente,
+        valor: parsed.vNF,
+        dhEmi: parsed.dhEmi,
+        ufEmit: parsed.ufEmit,
+        ufDest: parsed.ufDest || company.uf
+      };
+      totalBaixadas++;
+    };
 
     while (continuar) {
       if (onProgress) {
@@ -461,30 +489,7 @@ class SefazManager {
               }
             }
           } else if (parsed.type === 'procNFe') {
-            const saveRes = storage.saveFullXml(parsed.chNFe, xmlContent, {
-              dhEmi: parsed.dhEmi,
-              ufEmit: parsed.ufEmit,
-              ufDest: parsed.ufDest || company.uf
-            });
-            const savedPath = saveRes.filePath;
-            const pdfPath = savedPath.replace('-nfe.xml', '-danfe.pdf').replace('.xml', '-danfe.pdf');
-            try {
-              await danfe.gerarDanfeFromFile(savedPath, pdfPath);
-            } catch (_) {}
-
-            state.downloadedKeys = state.downloadedKeys || {};
-            state.downloadedKeys[parsed.chNFe] = {
-              date: new Date().toISOString(),
-              filePath: savedPath,
-              pdfPath: fs.existsSync(pdfPath) ? pdfPath : undefined,
-              emitente: parsed.xNomeEmitente,
-              cnpjEmitente: parsed.cnpjEmitente,
-              valor: parsed.vNF,
-              dhEmi: parsed.dhEmi,
-              ufEmit: parsed.ufEmit,
-              ufDest: parsed.ufDest || company.uf
-            };
-            totalBaixadas++;
+            await salvarProcNFe(parsed, xmlContent);
           }
         }
 
@@ -517,6 +522,35 @@ class SefazManager {
       }
     }
 
+    // Busca imediata (consChNFe) do XML completo das notas já manifestadas que ainda só têm o resumo,
+    // sem esperar a SEFAZ publicá-las em um novo NSU
+    const pendentes = this.listarNfePendentes(state);
+    if (pendentes.length > 0) {
+      if (onProgress) {
+        onProgress({ status: 'info', message: `Buscando XML completo de ${pendentes.length} nota(s) manifestada(s) pela chave de acesso...` });
+      }
+      if (totalManifestadas > 0) await sleep(3000);
+      for (const ch of pendentes) {
+        state.manifestedKeys[ch].tentativasXml = (state.manifestedKeys[ch].tentativasXml || 0) + 1;
+        try {
+          const r = await distribuicao.consultarPorChave(ch);
+          if (r.cStat === '656') break;
+          for (const doc of r.docs || []) {
+            const xml = storage.decompressDocZip(doc.contentBase64);
+            const parsedDoc = storage.parseDoc(xml);
+            if (parsedDoc.type === 'procNFe') {
+              await salvarProcNFe(parsedDoc, xml);
+              break;
+            }
+          }
+        } catch (ePend) {
+          console.warn(`Aviso ao buscar XML da NF-e ${ch}:`, ePend.message);
+        }
+        storage.saveState(state);
+        await sleep(2000);
+      }
+    }
+
     // Se novas notas foram baixadas e a geração não foi diferida para o lote geral, gera os DANFEs faltantes
     if (!skipDanfeGeneration && totalBaixadas > 0) {
       if (onProgress) {
@@ -544,6 +578,18 @@ class SefazManager {
       totalManifestadas,
       totalHistorico: Object.keys(state.downloadedKeys || {}).length
     };
+  }
+
+  // Notas manifestadas (a partir da data de corte) cujo XML completo ainda não foi baixado.
+  // Limite de 20 por consulta e 5 tentativas por chave para respeitar o controle anti-656 da SEFAZ.
+  listarNfePendentes(state) {
+    const baixadas = state.downloadedKeys || {};
+    const limite = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    return Object.entries(state.manifestedKeys || {})
+      .filter(([ch, m]) => !baixadas[ch] && !antesDoCorte({ chave: ch }) && (m.tentativasXml || 0) < 5 && new Date(m.date || 0).getTime() > limite)
+      .sort((a, b) => String(b[1].date || '').localeCompare(String(a[1].date || '')))
+      .slice(0, 20)
+      .map(([ch]) => ch);
   }
 
   loadMetadataCache(companyDir, cnpj) {
@@ -2426,7 +2472,7 @@ class SefazManager {
     let keepGoing = true;
     let iterations = 0;
 
-    while (keepGoing && iterations < 15) {
+    while (keepGoing && iterations < 1000) {
       iterations++;
       if (onProgress) {
         onProgress({ status: 'info', message: `Consultando CT-e na SEFAZ Nacional a partir do NSU ${ultNSU}...` });
@@ -2434,6 +2480,10 @@ class SefazManager {
 
       const res = await cteService.consultarPorNSU(ultNSU);
 
+      if (res.cStat === '656') {
+        if (onProgress) onProgress({ status: 'info', message: 'SEFAZ pediu pausa (Rejeição 656). A captação de CT-e continua na próxima sincronização.' });
+        break;
+      }
       if (res.cStat !== '138') {
         break;
       }
@@ -2482,12 +2532,15 @@ class SefazManager {
 
       ultNSU = res.ultNSU;
       stateCte.ultimoNsuCte = ultNSU;
+      this.stateDb.saveState(cleanCnpj, 'cte', stateCte);
 
       if (parseInt(ultNSU, 10) >= parseInt(res.maxNSU || '0', 10)) {
         keepGoing = false;
+      } else if (onProgress) {
+        onProgress({ status: 'info', message: `CT-e: lote processado (NSU ${ultNSU} de ${res.maxNSU}). Buscando o próximo...` });
       }
 
-      await sleep(1000);
+      await sleep(2000);
     }
 
     stateCte.lastSync = new Date().toISOString();
