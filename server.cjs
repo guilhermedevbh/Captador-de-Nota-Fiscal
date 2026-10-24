@@ -77,15 +77,16 @@ function isAuthenticated(req) {
 
 function loginPage(error) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Entrar - ${APP_NAME}</title><style>
+<title>Entrar - ${APP_NAME}</title><link rel="icon" type="image/png" href="/marca/icone.png"><style>
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
-form{background:#1e293b;padding:32px;border-radius:12px;width:100%;max-width:340px;box-shadow:0 10px 30px #0006}
+form{background:#1e293b;padding:32px;border-radius:12px;width:100%;max-width:380px;margin:16px;box-shadow:0 10px 30px #0006}
+.marca{background:#fff;margin:-32px -32px 24px;padding:18px 28px;border-radius:12px 12px 0 0}.marca img{display:block;width:100%;height:auto}
 h1{font-size:20px;margin:0 0 20px}label{display:block;font-size:13px;margin:12px 0 4px}
 input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0}
 button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
 .err{background:#7f1d1d;padding:8px 10px;border-radius:6px;font-size:13px}
 .credito{margin-top:18px;text-align:center;font-size:12px;color:#94a3b8}.credito strong{color:#e2e8f0}</style></head><body>
-<form method="post" action="/login" onsubmit="try{sessionStorage.setItem('captador_auth','1')}catch(e){}"><h1>${APP_NAME}</h1>${error ? `<div class="err">${error}</div>` : ''}
+<form method="post" action="/login" onsubmit="try{sessionStorage.setItem('captador_auth','1')}catch(e){}"><div class="marca"><img src="/marca/logo-completa.jpg" alt="${APP_NAME}" width="760" height="342"></div>${error ? `<div class="err">${error}</div>` : ''}
 <label>Usuário</label><input name="usuario" autocomplete="username" required autofocus>
 <label>Senha</label><input name="senha" type="password" autocomplete="current-password" required>
 <button type="submit">Entrar</button>
@@ -93,6 +94,10 @@ button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;backgr
 }
 
 const loginAttempts = new Map();
+
+// Logo e ícone usados na tela de login (públicos, antes da autenticação)
+app.get('/marca/logo-completa.jpg', (req, res) => res.sendFile(path.join(__dirname, 'assets', 'logo-completa.jpg'), { maxAge: '7d' }));
+app.get('/marca/icone.png', (req, res) => res.sendFile(path.join(__dirname, 'public', 'logo.png'), { maxAge: '7d' }));
 
 app.get('/login', (req, res) => {
   if (isAuthenticated(req)) return res.redirect('/');

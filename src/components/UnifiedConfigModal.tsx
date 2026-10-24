@@ -892,6 +892,7 @@ export default function UnifiedConfigModal({
                             <input
                               type="text"
                               value={editingCompany.certPath || ""}
+                              autoComplete="off"
                               readOnly
                               placeholder="Clique em 'Selecionar Arquivo' ou arraste o certificado A1 aqui..."
                               className="flex-1 bg-transparent text-[11px] font-mono text-[#000000] outline-none px-1"
@@ -914,6 +915,7 @@ export default function UnifiedConfigModal({
                             </label>
                             <input
                               type="password"
+                              autoComplete="new-password"
                               value={editingCompany.password || ""}
                               onChange={(e) => {
                                 const pwd = e.target.value;

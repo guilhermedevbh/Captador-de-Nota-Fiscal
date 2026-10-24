@@ -391,6 +391,7 @@ export default function SefazCompanyModal({
                     <input
                       type="text"
                       value={editingCompany.certPath || ""}
+                              autoComplete="off"
                       onChange={(e) => {
                         const newPath = e.target.value;
                         const pwdMatch = newPath.match(/_senha[ _]+([^_]+?)_/i) || newPath.match(/senha[ _]+([^_.]+)/i);
@@ -441,6 +442,7 @@ export default function SefazCompanyModal({
                     </label>
                     <input
                       type="password"
+                      autoComplete="new-password"
                       value={editingCompany.password || ""}
                       onChange={(e) => setEditingCompany({ ...editingCompany, password: e.target.value })}
                       placeholder="Senha do arquivo .pfx"
