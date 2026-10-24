@@ -902,12 +902,18 @@ export const saveCsvFile = async (
 export const exportarExcelCompleto = async (params: {
   cnpj: string;
   razaoSocial: string;
-  ano: string;
-  mes: string;
+  dataInicio?: string;
+  dataFim?: string;
+  direcao?: "todas" | "emitidas" | "recebidas";
+  tipos?: string[];
+  ano?: string;
+  mes?: string;
 }): Promise<{
   success?: boolean;
   canceled?: boolean;
   error?: string;
+  totalDocumentos?: number;
+  totalEventos?: number;
   totalNotas?: number;
   totalItens?: number;
   totalCtes?: number;

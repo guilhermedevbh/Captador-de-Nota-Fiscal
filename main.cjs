@@ -1510,20 +1510,52 @@ ipcMain.handle('app:save-csv-file', async (event, { defaultFilename, content, ti
   }
 });
 
-// 27a. Relatório Excel completo (.xlsx) com NF-e, NFC-e, itens, duplicatas, pagamentos, CT-e e NFS-e
-ipcMain.handle('relatorio:excel-completo', async (event, { cnpj, razaoSocial, ano = 'todos', mes = 'todos' }) => {
+// 27a. Relatório Excel completo (.xlsx) no modelo: resumo, notas, itens, tributos, pagamentos,
+// transportes, eventos, documentos referenciados, detalhes NFS-e, inconsistências e log
+ipcMain.handle('relatorio:excel-completo', async (event, params = {}) => {
   try {
+    const { cnpj, razaoSocial, direcao = 'todas', tipos } = params;
+    let { dataInicio, dataFim } = params;
+    // Compatibilidade: ano/mês selecionados na tela viram o intervalo de datas
+    if (!dataInicio && params.ano && params.ano !== 'todos') {
+      const ano = String(params.ano);
+      if (params.mes && params.mes !== 'todos') {
+        const mes = String(params.mes).padStart(2, '0');
+        const ultimo = new Date(Number(ano), Number(mes), 0).getDate();
+        dataInicio = `${ano}-${mes}-01`;
+        dataFim = `${ano}-${mes}-${String(ultimo).padStart(2, '0')}`;
+      } else {
+        dataInicio = `${ano}-01-01`;
+        dataFim = `${ano}-12-31`;
+      }
+    }
+
     const { companyDir } = resolveCompanyNfseDir(cnpj, razaoSocial);
     const cleanCnpj = String(cnpj || '').replace(/\D/g, '');
-    const sufixo = ano === 'todos' ? 'todos' : mes === 'todos' ? ano : `${ano}-${String(mes).padStart(2, '0')}`;
+
+    // NF-e manifestadas cujo XML completo ainda não foi liberado (só resumo), dentro do período
+    const XmlStorage = require('./sefaz/xmlStorage.cjs');
+    const estadoNfe = new XmlStorage(companyDir, cleanCnpj).loadState();
+    const aamm = (d) => (d ? d.slice(2, 4) + d.slice(5, 7) : '');
+    const resumosSemXml = Object.keys(estadoNfe.manifestedKeys || {}).filter((ch) =>
+      !(estadoNfe.downloadedKeys || {})[ch] &&
+      (!dataInicio || ch.slice(2, 6) >= aamm(dataInicio)) &&
+      (!dataFim || ch.slice(2, 6) <= aamm(dataFim))
+    );
+
+    const slugTipos = tipos && tipos.length && tipos.length < 4 ? tipos.map((t) => t.toLowerCase().replace(/[^a-z]/g, '')).join('-') : 'notas';
+    const periodo = dataInicio ? `${dataInicio}-a-${dataFim || dataInicio}` : 'todos-os-periodos';
     const saveDialog = await dialog.showSaveDialog(mainWindow, {
       title: 'Salvar Relatório Fiscal Completo (.xlsx)',
-      defaultPath: path.join(app.getPath('downloads'), `relatorio_fiscal_completo_${cleanCnpj}_${sufixo}.xlsx`),
+      defaultPath: path.join(app.getPath('downloads'), `${slugTipos}-${direcao === 'todas' ? 'emitidas-e-recebidas' : direcao}-${periodo}.xlsx`),
       filters: [{ name: 'Planilha Excel (*.xlsx)', extensions: ['xlsx'] }]
     });
     if (saveDialog.canceled || !saveDialog.filePath) return { canceled: true };
 
-    const resumo = await gerarRelatorioExcel({ companyDir, cnpj: cleanCnpj, razaoSocial, ano, mes, filePath: saveDialog.filePath });
+    const resumo = await gerarRelatorioExcel({
+      companyDir, cnpj: cleanCnpj, razaoSocial, dataInicio, dataFim, direcao, tipos,
+      geradoPor: process.env.APP_USER || 'admin', resumosSemXml, filePath: saveDialog.filePath
+    });
     return { success: true, filePath: saveDialog.filePath, ...resumo };
   } catch (err) {
     return { success: false, error: err.message };

@@ -882,6 +882,25 @@ export default function GuiaAcompanhamentoView({
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
   const [exportingHtml, setExportingHtml] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
+  const [excelModalAberto, setExcelModalAberto] = useState(false);
+  const [excelOpcoes, setExcelOpcoes] = useState({
+    dataInicio: "",
+    dataFim: "",
+    direcao: "todas" as "todas" | "emitidas" | "recebidas",
+    tipos: ["NF-e", "NFC-e", "CT-e", "NFS-e"]
+  });
+
+  // Abre as opções do relatório com o período já selecionado na tela (ou o mês atual)
+  const abrirOpcoesExcel = () => {
+    const hoje = new Date();
+    const ano = selectedAno !== "todos" ? Number(selectedAno) : hoje.getFullYear();
+    const mes = selectedMes !== "todos" ? Number(selectedMes) : selectedAno !== "todos" ? null : hoje.getMonth() + 1;
+    const pad = (v: number) => String(v).padStart(2, "0");
+    const inicio = mes ? `${ano}-${pad(mes)}-01` : `${ano}-01-01`;
+    const fim = mes ? `${ano}-${pad(mes)}-${pad(new Date(ano, mes, 0).getDate())}` : `${ano}-12-31`;
+    setExcelOpcoes((o) => ({ ...o, dataInicio: inicio, dataFim: fim }));
+    setExcelModalAberto(true);
+  };
 
   // Relatório Excel completo (.xlsx) gerado no servidor a partir de todos os XMLs do período
   const handleExportarExcelCompleto = async () => {
@@ -889,18 +908,26 @@ export default function GuiaAcompanhamentoView({
       onNotify("Selecione uma empresa para gerar o relatório.", "error");
       return;
     }
+    if (excelOpcoes.tipos.length === 0) {
+      onNotify("Selecione ao menos um tipo de documento.", "error");
+      return;
+    }
+    if (excelOpcoes.dataInicio && excelOpcoes.dataFim && excelOpcoes.dataInicio > excelOpcoes.dataFim) {
+      onNotify("A data inicial deve ser anterior à data final.", "error");
+      return;
+    }
     setExportingXlsx(true);
     try {
       const res = await exportarExcelCompleto({
         cnpj: activeEmpresa.cnpj,
         razaoSocial: activeEmpresa.razaoSocial,
-        ano: selectedAno,
-        mes: selectedMes
+        ...excelOpcoes
       });
       if (res.canceled) return;
       if (res.success) {
+        setExcelModalAberto(false);
         onNotify(
-          `Relatório Excel gerado: ${res.totalNotas} NF-e/NFC-e (${res.totalItens} itens), ${res.totalCtes} CT-e e ${res.totalNfses} NFS-e.`,
+          `Relatório Excel gerado: ${res.totalDocumentos} documento(s) — ${res.totalNotas} NF-e/NFC-e, ${res.totalCtes} CT-e, ${res.totalNfses} NFS-e, ${res.totalItens} itens e ${res.totalEventos} evento(s).`,
           "success"
         );
       } else {
@@ -1249,7 +1276,7 @@ export default function GuiaAcompanhamentoView({
 
           <button
             type="button"
-            onClick={handleExportarExcelCompleto}
+            onClick={abrirOpcoesExcel}
             disabled={!activeEmpresa || exportingXlsx}
             className="vb-btn"
             title="Relatório Excel (.xlsx) completo: notas, itens com todos os impostos, duplicatas, pagamentos, CT-e e NFS-e do período selecionado"
@@ -2068,6 +2095,106 @@ export default function GuiaAcompanhamentoView({
       </footer>
 
       {/* Modal de Dashboard Executivo */}
+      {excelModalAberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 select-none">
+          <div className="bg-[#f0f0f0] border-2 border-[#003366] shadow-2xl w-full max-w-md text-[11px] text-[#000000]">
+            <div className="bg-gradient-to-r from-[#003366] to-[#005a9e] text-white px-2.5 py-1.5 flex items-center justify-between font-bold text-[12px]">
+              <span className="flex items-center gap-1.5">
+                <FileSpreadsheet size={14} /> Relatório Excel Completo
+              </span>
+              <button type="button" onClick={() => setExcelModalAberto(false)} className="px-1 hover:bg-white/20" title="Fechar">
+                ✕
+              </button>
+            </div>
+            <div className="p-3 flex flex-col gap-2.5">
+              <fieldset className="vb-groupbox">
+                <legend className="vb-legend">Período (data de emissão)</legend>
+                <div className="flex items-center gap-2">
+                  <label className="font-semibold">De:</label>
+                  <input
+                    type="date"
+                    className="vb-input"
+                    value={excelOpcoes.dataInicio}
+                    onChange={(e) => setExcelOpcoes({ ...excelOpcoes, dataInicio: e.target.value })}
+                  />
+                  <label className="font-semibold">Até:</label>
+                  <input
+                    type="date"
+                    className="vb-input"
+                    value={excelOpcoes.dataFim}
+                    onChange={(e) => setExcelOpcoes({ ...excelOpcoes, dataFim: e.target.value })}
+                  />
+                </div>
+              </fieldset>
+
+              <fieldset className="vb-groupbox">
+                <legend className="vb-legend">Notas incluídas</legend>
+                <div className="flex flex-wrap gap-3">
+                  {([
+                    ["todas", "Emitidas e recebidas"],
+                    ["emitidas", "Somente emitidas"],
+                    ["recebidas", "Somente recebidas"]
+                  ] as const).map(([valor, rotulo]) => (
+                    <label key={valor} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="excel-direcao"
+                        checked={excelOpcoes.direcao === valor}
+                        onChange={() => setExcelOpcoes({ ...excelOpcoes, direcao: valor })}
+                      />
+                      {rotulo}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="vb-groupbox">
+                <legend className="vb-legend">Tipos de documento</legend>
+                <div className="flex flex-wrap gap-3">
+                  {["NF-e", "NFC-e", "CT-e", "NFS-e"].map((tipo) => (
+                    <label key={tipo} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={excelOpcoes.tipos.includes(tipo)}
+                        onChange={(e) =>
+                          setExcelOpcoes({
+                            ...excelOpcoes,
+                            tipos: e.target.checked
+                              ? [...excelOpcoes.tipos, tipo]
+                              : excelOpcoes.tipos.filter((t) => t !== tipo)
+                          })
+                        }
+                      />
+                      {tipo}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <p className="text-[10px] text-[#555] leading-snug">
+                A planilha traz: resumo executivo, notas, itens, tributos por item, pagamentos e parcelas, transportes,
+                eventos fiscais, documentos referenciados, detalhes das NFS-e, inconsistências e log.
+              </p>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" className="vb-btn" onClick={() => setExcelModalAberto(false)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="vb-btn vb-btn-primary"
+                  onClick={handleExportarExcelCompleto}
+                  disabled={exportingXlsx}
+                >
+                  <FileSpreadsheet size={13} className="text-[#107c41]" />
+                  <span>{exportingXlsx ? "Gerando planilha..." : "Gerar Excel"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ExecutiveDashboardModal
         isOpen={isDashboardModalOpen}
         onClose={() => setIsDashboardModalOpen(false)}
