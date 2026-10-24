@@ -887,7 +887,7 @@ export default function App() {
               <img
                 src={logoImg}
                 alt="Logo Captador de Notas Fiscais"
-                className="h-5 w-auto object-contain shrink-0"
+                className="h-6 w-auto object-contain shrink-0"
               />
               <span className="font-extrabold text-[#003366] text-[12px] tracking-tight whitespace-nowrap">
                 Captador de Notas Fiscais
