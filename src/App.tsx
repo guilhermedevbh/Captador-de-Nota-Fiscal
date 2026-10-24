@@ -24,7 +24,8 @@ import {
 } from "./utils/calc";
 import { calculateDaysRemaining } from "./utils/certUtils";
 import DifalView from "./components/DifalView";
-import { Calculator, FileText, Layers, RefreshCw, CheckCircle2, Building2, Building, Printer, HelpCircle, DownloadCloud, ShieldCheck, Landmark, ShoppingBag, AlertCircle, Truck, Settings, FolderOpen, LogOut } from "lucide-react";
+import { Calculator, FileText, Layers, RefreshCw, CheckCircle2, Building2, Building, Printer, HelpCircle, DownloadCloud, ShieldCheck, Landmark, ShoppingBag, AlertCircle, Truck, Settings, FolderOpen, LogOut, Moon, Sun } from "lucide-react";
+import { aplicarTema, temaAtual, Tema } from "./utils/tema";
 import ReportPrintModal from "./components/ReportPrintModal";
 import OnboardingModal from "./components/OnboardingModal";
 import CaptacaoView from "./components/CaptacaoView";
@@ -60,6 +61,7 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 export default function App() {
+  const [tema, setTema] = useState<Tema>(temaAtual);
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [cfopMap, setCfopMap] = useState<Map<string, string>>(new Map());
   const [cfopFileName, setCfopFileName] = useState("Tabela Padrão (Interna)");
@@ -1009,6 +1011,18 @@ export default function App() {
               title="Configurações, Empresas e Agendadores"
             >
               <Settings size={13} className="text-[#333333]" />
+            </button>
+
+            <button
+              onClick={() => {
+                const novo: Tema = tema === "escuro" ? "claro" : "escuro";
+                aplicarTema(novo);
+                setTema(novo);
+              }}
+              className="vb-top-btn !px-1.5"
+              title={tema === "escuro" ? "Mudar para o modo claro" : "Mudar para o modo escuro"}
+            >
+              {tema === "escuro" ? <Sun size={13} className="text-[#d97706]" /> : <Moon size={13} className="text-[#333333]" />}
             </button>
 
             <button

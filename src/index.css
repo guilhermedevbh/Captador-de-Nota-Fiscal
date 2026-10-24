@@ -38,6 +38,17 @@ input:focus, select:focus {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
+/* Tema escuro: controles nativos (barras de rolagem, calendário, selects) e fundo da página.
+   As demais cores escuras são geradas no build (vite-plugins/temaEscuro.ts). */
+html.dark {
+  color-scheme: dark;
+  background-color: #1b1d21;
+}
+html.dark body {
+  background-color: #1b1d21;
+  color: #e3e6ea;
+}
+
 /* Global viewport fluidity and prevent body horizontal overflow */
 html, body {
   overflow-x: hidden;
