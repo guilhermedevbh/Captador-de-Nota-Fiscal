@@ -1,6 +1,24 @@
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
 const forge = require('node-forge');
 const { resolverCertificado, MSG_CERT_AUSENTE } = require('./certResolver.cjs');
+
+function traduzirErroCertificado(err) {
+  const msg = String((err && err.message) || err);
+  if (/MAC could not be verified|Invalid password|mac verify failure/i.test(msg)) {
+    return 'Senha do certificado digital incorreta. Confira a senha no cadastro da empresa (Configurações → Empresas).';
+  }
+  if (/Too few bytes|Unparsed DER|ASN\.1|not a valid|Invalid DER/i.test(msg)) {
+    return 'O arquivo enviado não é um certificado .pfx/.p12 válido (arquivo corrompido ou de outro tipo). Envie novamente o certificado A1 da empresa.';
+  }
+  if (/Unsupported OID|Cannot read encrypted/i.test(msg)) {
+    return 'O certificado usa uma criptografia não suportada. Reexporte o .pfx marcando "TripleDES-SHA1" (ou envie o arquivo original da certificadora).';
+  }
+  if (/não localizad|não encontrado|vazio/i.test(msg)) return msg;
+  return `Não foi possível ler o certificado digital: ${msg}`;
+}
 
 class CertManager {
   constructor(certPath, password) {
@@ -23,24 +41,12 @@ class CertManager {
     this.certPath = resolvido;
 
     this.pfxBuffer = fs.readFileSync(this.certPath);
+    if (!this.pfxBuffer.length) {
+      throw new Error('O arquivo do certificado digital está vazio. Envie novamente o .pfx da empresa.');
+    }
 
     try {
-      const p12Asn1 = forge.asn1.fromDer(this.pfxBuffer.toString('binary'));
-      const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, this.password);
-
-      let key = null;
-      const allCerts = [];
-
-      for (const sc of (p12.safeContents || [])) {
-        for (const safeBag of (sc.safeBags || [])) {
-          if (safeBag.key) {
-            key = safeBag.key;
-          }
-          if (safeBag.cert) {
-            allCerts.push(safeBag.cert);
-          }
-        }
-      }
+      const { key, allCerts } = this.extrairChaveECertificados();
 
       if (allCerts.length === 0) {
         throw new Error('Certificado X.509 não localizado dentro do arquivo .pfx.');
@@ -105,11 +111,63 @@ class CertManager {
 
       return this.info;
     } catch (err) {
-      if (err.message.includes('password') || err.message.includes('MAC') || err.message.includes('PKCS#12')) {
-        throw new Error(`Senha incorreta ou arquivo PFX inválido. (Erro: ${err.message})`);
-      }
-      throw err;
+      throw new Error(traduzirErroCertificado(err));
     }
+  }
+
+  // Lê chave privada e certificados do .pfx com node-forge; se o arquivo usar criptografia
+  // que o forge não suporta (ex.: AES-256 dos PFX exportados por Windows/OpenSSL 3), usa o OpenSSL.
+  extrairChaveECertificados() {
+    try {
+      const p12Asn1 = forge.asn1.fromDer(this.pfxBuffer.toString('binary'));
+      const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, this.password);
+      let key = null;
+      const allCerts = [];
+      for (const sc of (p12.safeContents || [])) {
+        for (const safeBag of (sc.safeBags || [])) {
+          if (safeBag.key) key = safeBag.key;
+          if (safeBag.cert) allCerts.push(safeBag.cert);
+        }
+      }
+      return { key, allCerts };
+    } catch (errForge) {
+      if (/MAC could not be verified|Invalid password/i.test(errForge.message)) throw errForge;
+      const viaOpenssl = this.extrairViaOpenssl();
+      if (viaOpenssl) return viaOpenssl;
+      throw errForge;
+    }
+  }
+
+  extrairViaOpenssl() {
+    const tmp = path.join(os.tmpdir(), `cert-${process.pid}-${Date.now()}.pfx`);
+    let senhaErrada = false;
+    try {
+      fs.writeFileSync(tmp, this.pfxBuffer, { mode: 0o600 });
+      for (const extra of [[], ['-legacy']]) {
+        try {
+          const pem = execFileSync('openssl', ['pkcs12', '-in', tmp, '-nodes', '-passin', 'env:CAPTADOR_PFX_PASS', ...extra], {
+            env: { ...process.env, CAPTADOR_PFX_PASS: this.password || '' },
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 15000
+          }).toString();
+          const blocoChave = pem.match(/-----BEGIN (?:RSA |ENCRYPTED )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |ENCRYPTED )?PRIVATE KEY-----/);
+          const blocosCert = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) || [];
+          if (!blocoChave || blocosCert.length === 0) continue;
+          return {
+            key: forge.pki.privateKeyFromPem(blocoChave[0]),
+            allCerts: blocosCert.map((c) => forge.pki.certificateFromPem(c))
+          };
+        } catch (errOpenssl) {
+          if (/mac verify|invalid password|bad decrypt/i.test(String(errOpenssl.stderr || ''))) senhaErrada = true;
+        }
+      }
+    } catch (_) {
+      // OpenSSL indisponível: mantém o erro original do forge
+    } finally {
+      try { fs.rmSync(tmp, { force: true }); } catch (_) {}
+    }
+    if (senhaErrada) throw new Error('MAC could not be verified. Invalid password?');
+    return null;
   }
 
   getPfxBuffer() {
