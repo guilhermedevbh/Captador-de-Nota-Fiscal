@@ -12,6 +12,7 @@ const CteDistribuicaoService = require('./cteDistribuicao.cjs');
 const DacteService = require('./dacteService.cjs');
 const { getStateDatabase } = require('./stateDatabase.cjs');
 const { DATA_INICIAL_CAPTACAO, antesDoCorte } = require('./dataCorte.cjs');
+const { explicarCStat, validarCertificadoDaEmpresa } = require('./sefazStatus.cjs');
 
 const UF_TO_IBGE = {
   RO: '11', AC: '12', AM: '13', RR: '14', PA: '15', AP: '16', TO: '17',
@@ -347,8 +348,9 @@ class SefazManager {
     const certInfo = certManager.load();
 
     if (certInfo.isExpired) {
-      throw new Error('O certificado digital da empresa está expirado!');
+      throw new Error(`O certificado digital da empresa venceu em ${new Date(certInfo.validTo).toLocaleDateString('pt-BR')}. Renove o certificado A1 e envie o novo arquivo.`);
     }
+    validarCertificadoDaEmpresa(certInfo, cleanCnpj);
 
     const soapClient = new SoapClient(
       certManager.getFullCertChainPem(),
@@ -369,6 +371,7 @@ class SefazManager {
     });
 
     let continuar = !pularNsu;
+    let nsuReiniciado = false;
     let totalBaixadas = 0;
     let totalManifestadas = 0;
 
@@ -408,6 +411,7 @@ class SefazManager {
       }
 
       const response = await distribuicao.consultarPorNSU(state.ultNSU);
+      state.ultimaResposta = { cStat: response.cStat, xMotivo: response.xMotivo, data: new Date().toISOString() };
 
       if (response.cStat === '137') {
         state.maxNSU = response.maxNSU || state.maxNSU;
@@ -416,8 +420,25 @@ class SefazManager {
         // Cooldown preventivo de 1 hora conforme NT 2014.002
         state.blockedUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
         storage.saveState(state);
-        if (onProgress) onProgress({ status: 'info', message: 'Nenhum documento novo na SEFAZ. Repouso preventivo de 1h ativado.' });
+        if (onProgress) {
+          const semDocumentos = String(state.ultNSU).replace(/^0+/, '') === '' && String(response.maxNSU || '0').replace(/^0+/, '') === '';
+          onProgress({
+            status: 'info',
+            message: semDocumentos
+              ? 'SEFAZ: 137 - Nenhum documento localizado. A SEFAZ não tem NF-e para este CNPJ nos últimos 90 dias. Confira se o CNPJ cadastrado é o que aparece nas notas (matriz x filial). Nova consulta liberada em 1h.'
+              : `SEFAZ: 137 - Todas as notas disponíveis já foram baixadas (NSU ${response.ultNSU || state.ultNSU} de ${response.maxNSU || state.maxNSU}). Nova consulta liberada em 1h.`
+          });
+        }
         break;
+      }
+
+      // NSU salvo maior que o da SEFAZ (ex.: troca de certificado/ambiente): recomeça do início uma vez
+      if (response.cStat === '589' && !nsuReiniciado) {
+        nsuReiniciado = true;
+        state.ultNSU = '0';
+        storage.saveState(state);
+        if (onProgress) onProgress({ status: 'info', message: 'SEFAZ: 589 - NSU fora da sequência. Reiniciando a consulta do início...' });
+        continue;
       }
 
       if (response.cStat === '656') {
@@ -517,8 +538,10 @@ class SefazManager {
           continuar = false;
         }
       } else {
+        state.lastCStat = response.cStat;
+        state.lastSyncTime = new Date().toISOString();
         storage.saveState(state);
-        break;
+        throw new Error(explicarCStat(response.cStat, response.xMotivo));
       }
     }
 
@@ -535,6 +558,8 @@ class SefazManager {
         try {
           const r = await distribuicao.consultarPorChave(ch);
           if (r.cStat === '656') break;
+          // Nota indisponível para esta empresa (fora do prazo, cancelada, sem permissão): não tenta de novo
+          if (['632', '640', '641', '653', '654'].includes(r.cStat)) state.manifestedKeys[ch].tentativasXml = 5;
           for (const doc of r.docs || []) {
             const xml = storage.decompressDocZip(doc.contentBase64);
             const parsedDoc = storage.parseDoc(xml);
@@ -821,8 +846,9 @@ class SefazManager {
     const certInfo = certManager.load();
 
     if (certInfo.isExpired) {
-      throw new Error('O certificado digital da empresa está expirado!');
+      throw new Error(`O certificado digital da empresa venceu em ${new Date(certInfo.validTo).toLocaleDateString('pt-BR')}. Renove o certificado A1 e envie o novo arquivo.`);
     }
+    validarCertificadoDaEmpresa(certInfo, cleanCnpj);
 
     const soapClient = new SoapClient(
       certManager.getFullCertChainPem(),
@@ -1504,8 +1530,9 @@ class SefazManager {
     const certInfo = certManager.load();
 
     if (certInfo.isExpired) {
-      throw new Error('O certificado digital da empresa está expirado!');
+      throw new Error(`O certificado digital da empresa venceu em ${new Date(certInfo.validTo).toLocaleDateString('pt-BR')}. Renove o certificado A1 e envie o novo arquivo.`);
     }
+    validarCertificadoDaEmpresa(certInfo, cleanCnpj);
 
     const soapClient = new SoapClient(
       certManager.getFullCertChainPem(),
@@ -1527,6 +1554,9 @@ class SefazManager {
 
     if (onProgress) onProgress({ status: 'info', message: `Consultando NF-e ${cleanKey.slice(-8)} na SEFAZ Nacional...` });
     let distRes = await distribuicao.consultarPorChave(cleanKey);
+    if (!['137', '138'].includes(distRes.cStat)) {
+      throw new Error(explicarCStat(distRes.cStat, distRes.xMotivo));
+    }
 
     let procDoc = null;
     let resDoc = null;
@@ -2440,8 +2470,9 @@ class SefazManager {
     const certManager = new CertManager(company.certPath, company.password);
     const certInfo = certManager.load();
     if (certInfo.isExpired) {
-      throw new Error('Certificado digital da empresa está expirado.');
+      throw new Error(`O certificado digital da empresa venceu em ${new Date(certInfo.validTo).toLocaleDateString('pt-BR')}. Renove o certificado A1 e envie o novo arquivo.`);
     }
+    validarCertificadoDaEmpresa(certInfo, cleanCnpj);
 
     const soapClient = new SoapClient(
       certManager.getFullCertChainPem(),
@@ -2471,6 +2502,7 @@ class SefazManager {
     let totalBaixadas = 0;
     let keepGoing = true;
     let iterations = 0;
+    let nsuReiniciado = false;
 
     while (keepGoing && iterations < 1000) {
       iterations++;
@@ -2484,8 +2516,19 @@ class SefazManager {
         if (onProgress) onProgress({ status: 'info', message: 'SEFAZ pediu pausa (Rejeição 656). A captação de CT-e continua na próxima sincronização.' });
         break;
       }
-      if (res.cStat !== '138') {
+      if (res.cStat === '137') {
+        if (onProgress) onProgress({ status: 'info', message: `CT-e — SEFAZ: 137 - Nenhum documento novo (NSU ${res.ultNSU || ultNSU} de ${res.maxNSU || '0'}).` });
         break;
+      }
+      if (res.cStat === '589' && !nsuReiniciado) {
+        nsuReiniciado = true;
+        ultNSU = '0';
+        continue;
+      }
+      if (res.cStat !== '138') {
+        stateCte.lastSync = new Date().toISOString();
+        this.stateDb.saveState(cleanCnpj, 'cte', stateCte);
+        throw new Error(`CT-e — ${explicarCStat(res.cStat, res.xMotivo)}`);
       }
 
       const docs = res.docs || [];
