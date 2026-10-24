@@ -77,16 +77,22 @@ function isAuthenticated(req) {
 
 function loginPage(error) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Entrar - ${APP_NAME}</title><link rel="icon" type="image/png" href="/marca/icone.png"><style>
+<title>Entrar - ${APP_NAME}</title><link rel="icon" type="image/png" href="/marca/icone.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&display=swap" rel="stylesheet"><style>
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
 form{background:#1e293b;padding:32px;border-radius:12px;width:100%;max-width:380px;margin:16px;box-shadow:0 10px 30px #0006}
-.marca{background:#fff;margin:-32px -32px 24px;padding:18px 28px;border-radius:12px 12px 0 0}.marca img{display:block;width:100%;height:auto}
+.marca{display:flex;align-items:center;justify-content:center;gap:14px;margin:0 0 26px}.marca img{width:92px;height:92px;flex-shrink:0;filter:drop-shadow(0 6px 14px rgba(0,0,0,.45))}
+.nome{display:flex;flex-direction:column;font-family:Montserrat,system-ui,sans-serif;line-height:1}
+.nome .t1{font-size:38px;font-weight:800;letter-spacing:.5px;background:linear-gradient(180deg,#7dd3fc 0%,#2b9af3 45%,#1565c0 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 0 #0b3a6e) drop-shadow(0 5px 8px rgba(0,0,0,.5))}
+.nome .t2{margin-top:6px;font-size:15.2px;font-weight:600;letter-spacing:1.15px;background:linear-gradient(180deg,#ffffff 0%,#dbe3ec 55%,#9aa8b8 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 1px 1px rgba(0,0,0,.7))}
+@media (max-width:420px){.marca img{width:66px;height:66px}.nome .t1{font-size:27px}.nome .t2{font-size:10.8px;letter-spacing:.8px}form{padding:26px}}
 h1{font-size:20px;margin:0 0 20px}label{display:block;font-size:13px;margin:12px 0 4px}
 input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0}
 button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
 .err{background:#7f1d1d;padding:8px 10px;border-radius:6px;font-size:13px}
 .credito{margin-top:18px;text-align:center;font-size:12px;color:#94a3b8}.credito strong{color:#e2e8f0}</style></head><body>
-<form method="post" action="/login" onsubmit="try{sessionStorage.setItem('captador_auth','1')}catch(e){}"><div class="marca"><img src="/marca/logo-completa.jpg" alt="${APP_NAME}" width="760" height="342"></div>${error ? `<div class="err">${error}</div>` : ''}
+<form method="post" action="/login" onsubmit="try{sessionStorage.setItem('captador_auth','1')}catch(e){}"><div class="marca"><img src="/marca/simbolo.png" alt="" width="92" height="92"><div class="nome" role="img" aria-label="${APP_NAME}"><span class="t1">CAPTADOR</span><span class="t2">DOCUMENTOS FISCAIS</span></div></div>${error ? `<div class="err">${error}</div>` : ''}
 <label>Usuário</label><input name="usuario" autocomplete="username" required autofocus>
 <label>Senha</label><input name="senha" type="password" autocomplete="current-password" required>
 <button type="submit">Entrar</button>
@@ -96,7 +102,7 @@ button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;backgr
 const loginAttempts = new Map();
 
 // Logo e ícone usados na tela de login (públicos, antes da autenticação)
-app.get('/marca/logo-completa.jpg', (req, res) => res.sendFile(path.join(__dirname, 'assets', 'logo-completa.jpg'), { maxAge: '7d' }));
+app.get('/marca/simbolo.png', (req, res) => res.sendFile(path.join(__dirname, 'assets', 'logo.png'), { maxAge: '7d' }));
 app.get('/marca/icone.png', (req, res) => res.sendFile(path.join(__dirname, 'public', 'logo.png'), { maxAge: '7d' }));
 
 app.get('/login', (req, res) => {
