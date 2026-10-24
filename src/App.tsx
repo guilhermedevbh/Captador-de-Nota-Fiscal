@@ -1200,6 +1200,10 @@ export default function App() {
         )}
   </main>
 
+      <footer className="shrink-0 border-t border-[#b0b0b0] bg-[#e8e8e8] px-2 py-0.5 text-center text-[10px] text-[#555]">
+        Desenvolvido por <strong className="text-[#003366]">Guilherme Fernandes Leal De Souza</strong>
+      </footer>
+
       <ReportPrintModal
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
