@@ -2,12 +2,13 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import temaEscuro from './vite-plugins/temaEscuro';
 
 export default defineConfig(() => {
   const apiPort = process.env.PORT || '3000';
   return {
     base: '/',
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), temaEscuro()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -1037,8 +1037,8 @@ export default function EmpresasHubView({
                   </th>
                   <th
                     onClick={() => handleHeaderSort("totalDocs")}
-                    className="cursor-pointer hover:bg-[#d0e0f5] select-none transition-colors"
-                    style={{ width: "95px", textAlign: "right", background: "#e0e8f5" }}
+                    className="cursor-pointer bg-[#e0e8f5] hover:bg-[#d0e0f5] select-none transition-colors"
+                    style={{ width: "95px", textAlign: "right" }}
                     title="Clique para ordenar por total de documentos"
                   >
                     <div className="flex items-center justify-between">
