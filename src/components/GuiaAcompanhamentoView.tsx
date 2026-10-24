@@ -47,7 +47,8 @@ import {
   saveSingleCteXml,
   saveCsvFile,
   saveHtmlDashboard,
-  openCompanyFolder
+  openCompanyFolder,
+  exportarExcelCompleto
 } from "../utils/electronBridge";
 import { formatBRL, normalizeCompetencia, parseDateToTimestamp } from "../utils/calc";
 import CertificateBadge from "./CertificateBadge";
@@ -880,6 +881,37 @@ export default function GuiaAcompanhamentoView({
 
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
   const [exportingHtml, setExportingHtml] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
+
+  // Relatório Excel completo (.xlsx) gerado no servidor a partir de todos os XMLs do período
+  const handleExportarExcelCompleto = async () => {
+    if (!activeEmpresa) {
+      onNotify("Selecione uma empresa para gerar o relatório.", "error");
+      return;
+    }
+    setExportingXlsx(true);
+    try {
+      const res = await exportarExcelCompleto({
+        cnpj: activeEmpresa.cnpj,
+        razaoSocial: activeEmpresa.razaoSocial,
+        ano: selectedAno,
+        mes: selectedMes
+      });
+      if (res.canceled) return;
+      if (res.success) {
+        onNotify(
+          `Relatório Excel gerado: ${res.totalNotas} NF-e/NFC-e (${res.totalItens} itens), ${res.totalCtes} CT-e e ${res.totalNfses} NFS-e.`,
+          "success"
+        );
+      } else {
+        onNotify(res.error || "Erro ao gerar o relatório Excel.", "error");
+      }
+    } catch (err: any) {
+      onNotify(err?.message || "Erro ao gerar o relatório Excel.", "error");
+    } finally {
+      setExportingXlsx(false);
+    }
+  };
 
   // Computa dados analíticos mensais para o Dashboard Executivo
   const dashboardData: DashboardData = useMemo(() => {
@@ -1213,6 +1245,17 @@ export default function GuiaAcompanhamentoView({
           >
             <FileSpreadsheet size={13} className="text-[#107c41]" />
             <span>Exportar Excel / CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportarExcelCompleto}
+            disabled={!activeEmpresa || exportingXlsx}
+            className="vb-btn"
+            title="Relatório Excel (.xlsx) completo: notas, itens com todos os impostos, duplicatas, pagamentos, CT-e e NFS-e do período selecionado"
+          >
+            <FileSpreadsheet size={13} className="text-[#107c41]" />
+            <span>{exportingXlsx ? "Gerando..." : "Relatório Excel Completo"}</span>
           </button>
 
           <div className="h-4 w-[1px] bg-[#b5b5b5] mx-0.5" />

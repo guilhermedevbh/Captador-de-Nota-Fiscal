@@ -14,6 +14,7 @@ const {
   gerarPacoteZip
 } = require('./nfse/reportsNfse.cjs');
 const DANFSe = require('./nfse/danfse.cjs');
+const { gerarRelatorioExcel } = require('./sefaz/relatorioExcel.cjs');
 const PDFLib = require('pdf-lib');
 const qrcode = require('qrcode-generator');
 
@@ -1504,6 +1505,26 @@ ipcMain.handle('app:save-csv-file', async (event, { defaultFilename, content, ti
     fs.writeFileSync(saveDialog.filePath, content, 'utf8');
     shell.showItemInFolder(saveDialog.filePath);
     return { success: true, filePath: saveDialog.filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 27a. Relatório Excel completo (.xlsx) com NF-e, NFC-e, itens, duplicatas, pagamentos, CT-e e NFS-e
+ipcMain.handle('relatorio:excel-completo', async (event, { cnpj, razaoSocial, ano = 'todos', mes = 'todos' }) => {
+  try {
+    const { companyDir } = resolveCompanyNfseDir(cnpj, razaoSocial);
+    const cleanCnpj = String(cnpj || '').replace(/\D/g, '');
+    const sufixo = ano === 'todos' ? 'todos' : mes === 'todos' ? ano : `${ano}-${String(mes).padStart(2, '0')}`;
+    const saveDialog = await dialog.showSaveDialog(mainWindow, {
+      title: 'Salvar Relatório Fiscal Completo (.xlsx)',
+      defaultPath: path.join(app.getPath('downloads'), `relatorio_fiscal_completo_${cleanCnpj}_${sufixo}.xlsx`),
+      filters: [{ name: 'Planilha Excel (*.xlsx)', extensions: ['xlsx'] }]
+    });
+    if (saveDialog.canceled || !saveDialog.filePath) return { canceled: true };
+
+    const resumo = await gerarRelatorioExcel({ companyDir, cnpj: cleanCnpj, razaoSocial, ano, mes, filePath: saveDialog.filePath });
+    return { success: true, filePath: saveDialog.filePath, ...resumo };
   } catch (err) {
     return { success: false, error: err.message };
   }
