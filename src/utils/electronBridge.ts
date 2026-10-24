@@ -899,6 +899,25 @@ export const saveCsvFile = async (
   }
 };
 
+export const exportarExcelCompleto = async (params: {
+  cnpj: string;
+  razaoSocial: string;
+  ano: string;
+  mes: string;
+}): Promise<{
+  success?: boolean;
+  canceled?: boolean;
+  error?: string;
+  totalNotas?: number;
+  totalItens?: number;
+  totalCtes?: number;
+  totalNfses?: number;
+}> => {
+  const ipc = getIpc();
+  if (!ipc) return { success: false, error: "Servidor indisponível." };
+  return await ipc.invoke("relatorio:excel-completo", params);
+};
+
 export const exportDiagnostics = async (
   activeEmpresa?: EmpresaSefaz | null
 ): Promise<{ success: boolean; filePath?: string; canceled?: boolean; error?: string }> => {
