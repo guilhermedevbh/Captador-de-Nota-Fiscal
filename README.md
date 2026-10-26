@@ -74,7 +74,10 @@ O Vite (porta 5173) encaminha as chamadas `/api` para o servidor (porta 3000).
 | `OPEN_FOLDERS` | `1` | Use `0` para não abrir pastas no explorador do servidor |
 | `APP_USER` | `admin` | Usuário do login |
 | `APP_PASSWORD` | — | Senha do login (obrigatória; sem ela ninguém entra) |
-| `SESSION_SECRET` | aleatório | Chave para assinar a sessão. Defina para manter o login após reiniciar |
+| `APP_TOTP_SECRET` | — | Ativa o 2º fator (código do Google Authenticator/Authy). Gere em `/seguranca` |
+| `SESSAO_HORAS` | `12` | Duração máxima da sessão |
+| `SESSAO_INATIVIDADE_MIN` | `120` | Encerra a sessão após esse tempo sem uso (`0` desativa) |
+| `FORCAR_HTTPS` | `1` no Railway | Redireciona HTTP para HTTPS quando atrás de proxy com TLS |
 | `CAPTACAO_DATA_INICIAL` | `2026-01-01` | Só capta notas emitidas a partir desta data (AAAA-MM-DD) |
 | `RETENCAO_HORAS` | `24` | Apaga os XMLs/PDFs captados após este número de horas (`0` desativa) |
 
@@ -82,14 +85,22 @@ As notas fiscais baixadas ficam em `<DATA_DIR>/sefaz_empresas` (ou na pasta esco
 
 ## Segurança
 
-- Por padrão o servidor só aceita conexões do próprio computador (`127.0.0.1`).
-- Todas as páginas e a API exigem login (`APP_USER` / `APP_PASSWORD`). Sair: `/logout`.
-- Na internet, use sempre HTTPS (o Railway já fornece).
+Proteções do servidor (`web/seguranca.cjs`), com painel em **/seguranca** (botão de escudo no topo):
+
+- **Login:** senha comparada em tempo constante, 2º fator opcional (TOTP), bloqueio de 15 min após 5 erros por IP e atraso progressivo em ataques distribuídos.
+- **Sessões no servidor:** expiram por tempo máximo e por inatividade; "Sair" invalida a sessão; cookie `HttpOnly`, `Secure`, `SameSite=Strict`, preso ao navegador de origem; login exigido em cada nova aba.
+- **Cabeçalhos:** CSP restritiva (scripts só do próprio site, por hash), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, isolamento de origem, `Cache-Control: no-store` nos dados e bloqueio de indexação (`robots.txt` e `X-Robots-Tag`).
+- **CSRF:** ações que alteram dados conferem `Origin`/`Sec-Fetch-Site`.
+- **Arquivos:** a API só aceita caminhos dentro de `DATA_DIR` (bloqueia leitura de arquivos do sistema e `../`); uploads validados como PKCS#12 e gravados com permissão `600`; relatórios HTML abrem em sandbox.
+- **Abuso:** limite de 600 requisições/min por sessão e de tamanho das requisições.
+- **Auditoria:** logins, falhas, bloqueios e acessos negados em `DATA_DIR/logs/acessos.log`.
+
+Recomendações: senha com 14+ caracteres, 2FA ativo e acesso sempre pelo domínio `https://`.
 
 ## Deploy no Railway
 
 1. Em railway.app: **New Project → Deploy from GitHub repo** e escolha este repositório.
-2. Em **Variables**, defina `APP_USER`, `APP_PASSWORD`, `SESSION_SECRET` e `DATA_DIR=/data`.
+2. Em **Variables**, defina `APP_USER`, `APP_PASSWORD` e `DATA_DIR=/data` (opcional: `APP_TOTP_SECRET` para o 2FA).
 3. Em **Settings → Volumes**, crie um volume montado em `/data` (para não perder certificados e notas).
 4. Em **Settings → Networking**, clique em **Generate Domain**.
 

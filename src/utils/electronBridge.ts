@@ -49,6 +49,16 @@ function triggerDownload(url: string, filename: string) {
   document.body.removeChild(a);
 }
 
+// Sessão expirada ou encerrada no servidor: volta para a tela de login
+function sessaoExpirada(response: Response) {
+  if (response.status !== 401) return false;
+  try {
+    sessionStorage.removeItem("captador_auth");
+  } catch {}
+  window.location.href = "/login";
+  return true;
+}
+
 async function invokeChannel(channel: string, args: any[], openPaths?: string[]): Promise<any> {
   const pendingTab = CHANNELS_THAT_OPEN_FILES.has(channel) ? window.open("", "_blank") : null;
   try {
@@ -57,6 +67,7 @@ async function invokeChannel(channel: string, args: any[], openPaths?: string[])
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ args, openPaths }),
     });
+    if (sessaoExpirada(response)) throw new Error("Sessão expirada. Faça login novamente.");
     const data: InvokeResponse = await response.json();
     if (!response.ok) throw new Error(data?.error || `Falha na comunicação com o servidor (${response.status}).`);
 
@@ -134,6 +145,7 @@ export const uploadCertFile = async (file: File): Promise<string | null> => {
       headers: { "Content-Type": "application/octet-stream" },
       body: file,
     });
+    if (sessaoExpirada(response)) return null;
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error || "Falha ao enviar o certificado.");
     return data.path as string;
