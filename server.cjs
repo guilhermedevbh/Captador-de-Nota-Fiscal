@@ -45,10 +45,12 @@ app.set('trust proxy', 1);
 // ------------------------------------------------------------------
 // Espaços/quebras de linha colados por engano nas variáveis do Railway são ignorados
 const APP_USER = (process.env.APP_USER || 'admin').trim();
-const APP_PASSWORD = (process.env.APP_PASSWORD || '').trim();
+let APP_PASSWORD = (process.env.APP_PASSWORD || '').trim();
 let APP_PASSWORD_HASH = (process.env.APP_PASSWORD_HASH || '').trim();
 if (APP_PASSWORD_HASH && !/^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/.test(APP_PASSWORD_HASH)) {
-  console.warn('[Login] APP_PASSWORD_HASH com formato inválido (copie o valor inteiro gerado em /seguranca). Usando APP_PASSWORD.');
+  // Senha colada direto em APP_PASSWORD_HASH (sem gerar o hash): vale como senha normal até ser corrigida
+  console.warn('[Login] APP_PASSWORD_HASH não contém um hash (gere em /seguranca). O valor está sendo usado como senha em texto.');
+  if (!APP_PASSWORD) APP_PASSWORD = APP_PASSWORD_HASH;
   APP_PASSWORD_HASH = '';
 }
 const senhaConfigurada = !!(APP_PASSWORD_HASH || APP_PASSWORD);
