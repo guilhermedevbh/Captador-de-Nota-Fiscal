@@ -154,8 +154,8 @@ function saveSettings(settings) {
   }
 }
 
-// Retenção automática: apaga XMLs/PDFs captados há mais de RETENCAO_HORAS (padrão 24h; 0 desativa)
-const RETENCAO_HORAS = Number(process.env.RETENCAO_HORAS ?? 24);
+// Retenção automática: apaga XMLs/PDFs captados há mais de RETENCAO_HORAS (padrão 120h = 5 dias; 0 desativa)
+const RETENCAO_HORAS = Number(process.env.RETENCAO_HORAS ?? 120);
 const EXTENSOES_RETENCAO = new Set(['.xml', '.pdf']);
 
 function limparNotasExpiradas() {
