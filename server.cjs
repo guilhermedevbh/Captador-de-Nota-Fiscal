@@ -43,9 +43,14 @@ app.set('trust proxy', 1);
 // ------------------------------------------------------------------
 // Segurança: cabeçalhos, HTTPS, origem, sessões, limites, 2FA e auditoria
 // ------------------------------------------------------------------
-const APP_USER = process.env.APP_USER || 'admin';
-const APP_PASSWORD = process.env.APP_PASSWORD || '';
-const APP_PASSWORD_HASH = process.env.APP_PASSWORD_HASH || '';
+// Espaços/quebras de linha colados por engano nas variáveis do Railway são ignorados
+const APP_USER = (process.env.APP_USER || 'admin').trim();
+const APP_PASSWORD = (process.env.APP_PASSWORD || '').trim();
+let APP_PASSWORD_HASH = (process.env.APP_PASSWORD_HASH || '').trim();
+if (APP_PASSWORD_HASH && !/^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/.test(APP_PASSWORD_HASH)) {
+  console.warn('[Login] APP_PASSWORD_HASH com formato inválido (copie o valor inteiro gerado em /seguranca). Usando APP_PASSWORD.');
+  APP_PASSWORD_HASH = '';
+}
 const senhaConfigurada = !!(APP_PASSWORD_HASH || APP_PASSWORD);
 const conferirSenha = (senha) => (APP_PASSWORD_HASH ? seg.verificarHashSenha(senha, APP_PASSWORD_HASH) : !!APP_PASSWORD && seg.compararSeguro(senha, APP_PASSWORD));
 const listaIps = seg.criarListaIps(process.env.IPS_PERMITIDOS);
@@ -133,8 +138,11 @@ app.post('/login', express.urlencoded({ extended: false, limit: '10kb' }), async
     return res.status(400).type('html').send(loginPage('Não foi possível validar o formulário. Recarregue a página e tente novamente.'));
   }
 
-  const usuario = String(req.body?.usuario || '');
-  const senhaOk = senhaConfigurada && seg.compararSeguro(usuario, APP_USER) && conferirSenha(String(req.body?.senha || ''));
+  // Usuário sem diferenciar maiúsculas (teclado do celular) e sem espaços colados por engano
+  const usuario = String(req.body?.usuario || '').trim();
+  const senha = String(req.body?.senha || '');
+  const senhaOk = senhaConfigurada && seg.compararSeguro(usuario.toLowerCase(), APP_USER.toLowerCase()) &&
+    (conferirSenha(senha) || (senha.trim() !== senha && conferirSenha(senha.trim())));
   const ok = senhaOk && (!totp.ativo || totp.verificar(req.body?.codigo));
   if (!ok) {
     limitadorLogin.falha(ip);
