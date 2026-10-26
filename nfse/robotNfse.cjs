@@ -470,7 +470,7 @@ async function verificarEUnificarEventosPendentes(pastaEmpresaRaiz, chaveAlvo, p
  * @param {function} [options.onProgress] Callback de progresso ({ message, currentNsu, docsCount, type })
  * @param {string|number} [options.targetNsu] NSU inicial customizado
  */
-async function rodarCaptacaoNfseEmpresa({ company, companyOutputDir, onProgress, targetNsu }) {
+async function rodarCaptacaoNfseEmpresa({ company, companyOutputDir, onProgress, targetNsu, onNsuProcessado }) {
   const log = (msg, type = 'info') => {
     if (onProgress) onProgress({ message: msg, type, timestamp: new Date().toLocaleTimeString('pt-BR') });
   };
@@ -710,6 +710,10 @@ async function rodarCaptacaoNfseEmpresa({ company, companyOutputDir, onProgress,
 
     totalDocsBaixados += salvosNoLote;
     cursorNSU = highestNSU;
+    // Grava o ponto de parada a cada lote: uma falha no meio não faz recomeçar do zero
+    if (onNsuProcessado) {
+      try { onNsuProcessado(cursorNSU); } catch (_) {}
+    }
     log(`Lote processado (+${salvosNoLote} docs). Próximo NSU: ${cursorNSU}`);
   }
 

@@ -1200,7 +1200,8 @@ async function executarCaptacaoUnificadaNfse({ company, targetNsu, onProgress })
     company: safeCompany,
     companyOutputDir: companyNfseDir,
     targetNsu,
-    onProgress
+    onProgress,
+    onNsuProcessado: (nsu) => saveNfseState(companyDir, { ultimoNsuNfse: nsu, ultimaDataSp, lastSync: new Date().toISOString() }, company.cnpj)
   });
 
   const baixadasNacional = Number(resNacional?.totalDocsBaixados || 0);
@@ -1529,6 +1530,32 @@ ipcMain.handle('app:save-csv-file', async (event, { defaultFilename, content, ti
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// 27-emp. Cadastro de empresas guardado no servidor (não se perde ao trocar de navegador/computador)
+const empresasPath = path.join(app.getPath('userData'), 'empresas.json');
+
+function lerEmpresasServidor() {
+  try {
+    const lista = JSON.parse(fs.readFileSync(empresasPath, 'utf8'));
+    return Array.isArray(lista) ? lista : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+ipcMain.handle('empresas:listar', async () => lerEmpresasServidor());
+
+ipcMain.handle('empresas:salvar', async (event, lista) => {
+  if (!Array.isArray(lista) || lista.length > 2000) throw new Error('Lista de empresas inválida.');
+  const empresas = lista
+    .filter((e) => e && typeof e === 'object' && typeof e.id === 'string' && String(e.cnpj || '').replace(/\D/g, '').length >= 11)
+    .map((e) => ({ ...e, password: e.password ? encryptPassword(String(e.password)) : '' }));
+  // Gravação atômica: arquivo temporário + renomear (não corrompe se o servidor cair no meio)
+  const tmp = `${empresasPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(empresas, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, empresasPath);
+  return empresas;
 });
 
 // 27-seg. Cifra a senha do certificado (AES-256-GCM com a chave mestra do servidor) antes de o

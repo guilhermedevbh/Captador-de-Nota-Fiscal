@@ -14,6 +14,9 @@ const { getStateDatabase } = require('./stateDatabase.cjs');
 const { DATA_INICIAL_CAPTACAO, antesDoCorte } = require('./dataCorte.cjs');
 const { explicarCStat, validarCertificadoDaEmpresa } = require('./sefazStatus.cjs');
 
+// Respostas da SEFAZ que indicam indisponibilidade passageira (vale tentar de novo)
+const SEFAZ_INSTAVEL = new Set(['108', '109', '999']);
+
 const UF_TO_IBGE = {
   RO: '11', AC: '12', AM: '13', RR: '14', PA: '15', AP: '16', TO: '17',
   MA: '21', PI: '22', CE: '23', RN: '24', PB: '25', PE: '26', AL: '27',
@@ -372,6 +375,7 @@ class SefazManager {
 
     let continuar = !pularNsu;
     let nsuReiniciado = false;
+    let tentativasInstavel = 0;
     let totalBaixadas = 0;
     let totalManifestadas = 0;
 
@@ -537,6 +541,11 @@ class SefazManager {
           storage.saveState(state);
           continuar = false;
         }
+      } else if (SEFAZ_INSTAVEL.has(response.cStat) && tentativasInstavel < 3) {
+        // SEFAZ momentaneamente indisponível: aguarda e tenta de novo, sem perder o NSU já processado
+        tentativasInstavel++;
+        if (onProgress) onProgress({ status: 'info', message: `${explicarCStat(response.cStat, response.xMotivo)} Nova tentativa ${tentativasInstavel}/3 em ${15 * tentativasInstavel}s...` });
+        await sleep(15000 * tentativasInstavel);
       } else {
         state.lastCStat = response.cStat;
         state.lastSyncTime = new Date().toISOString();
@@ -2503,6 +2512,7 @@ class SefazManager {
     let keepGoing = true;
     let iterations = 0;
     let nsuReiniciado = false;
+    let tentativasInstavel = 0;
 
     while (keepGoing && iterations < 1000) {
       iterations++;
@@ -2523,6 +2533,12 @@ class SefazManager {
       if (res.cStat === '589' && !nsuReiniciado) {
         nsuReiniciado = true;
         ultNSU = '0';
+        continue;
+      }
+      if (SEFAZ_INSTAVEL.has(res.cStat) && tentativasInstavel < 3) {
+        tentativasInstavel++;
+        if (onProgress) onProgress({ status: 'info', message: `CT-e — ${explicarCStat(res.cStat, res.xMotivo)} Nova tentativa ${tentativasInstavel}/3 em ${15 * tentativasInstavel}s...` });
+        await sleep(15000 * tentativasInstavel);
         continue;
       }
       if (res.cStat !== '138') {
