@@ -26,7 +26,30 @@ import { calculateDaysRemaining } from "./utils/certUtils";
 import DifalView from "./components/DifalView";
 import { Calculator, FileText, Layers, RefreshCw, CheckCircle2, Building2, Building, Printer, HelpCircle, DownloadCloud, ShieldCheck, Landmark, ShoppingBag, AlertCircle, Truck, Settings, FolderOpen, LogOut, Moon, Sun } from "lucide-react";
 import { aplicarTema, temaAtual, Tema } from "./utils/tema";
-import { cifrarSenhas } from "./utils/electronBridge";
+import { cifrarSenhas, listarEmpresasServidor, salvarEmpresasServidor } from "./utils/electronBridge";
+
+// Ajusta nome e dias de validade do certificado e ordena por razão social
+const normalizarEmpresas = (lista: any): EmpresaSefaz[] =>
+  (Array.isArray(lista) ? lista : [])
+    .filter((e: EmpresaSefaz) => !(e.id === "emp_fast_01" && e.password === ""))
+    .map((e: EmpresaSefaz) => {
+      let rName = e.razaoSocial || "";
+      const cleanC = String(e.cnpj || "").replace(/\D/g, "");
+      if ((!rName || rName.replace(/\D/g, "") === cleanC) && e.certInfo?.subject) {
+        rName = e.certInfo.subject.split(":")[0].trim();
+      }
+      let certInfo = e.certInfo;
+      if (certInfo && certInfo.validTo) {
+        const days = calculateDaysRemaining(certInfo.validTo);
+        if (days !== null) {
+          certInfo = { ...certInfo, daysRemaining: days, isExpired: days < 0 };
+        }
+      }
+      return { ...e, razaoSocial: rName || cleanC, certInfo };
+    })
+    .sort((a: EmpresaSefaz, b: EmpresaSefaz) =>
+      (a.razaoSocial || "").localeCompare(b.razaoSocial || "", "pt-BR", { sensitivity: "base", numeric: true })
+    );
 
 const senhaAberta = (s?: string) => !!s && !s.startsWith("enc:") && !s.startsWith("enc2:");
 
@@ -160,38 +183,11 @@ export default function App() {
       console.warn("Nao foi possivel carregar regras de NCM persistidas.", e);
     }
 
-    // Load SEFAZ Companies
+    // Load SEFAZ Companies (cópia local; a lista oficial vem do servidor logo abaixo)
     try {
       const rawEmpresas = localStorage.getItem(EMPRESAS_STORAGE_KEY);
       if (rawEmpresas) {
-        const parsed = JSON.parse(rawEmpresas);
-        const sanitized = (Array.isArray(parsed) ? parsed : [])
-          .filter((e: EmpresaSefaz) => !(e.id === "emp_fast_01" && e.password === ""))
-          .map((e: EmpresaSefaz) => {
-            let rName = e.razaoSocial || "";
-            const cleanC = String(e.cnpj || "").replace(/\D/g, "");
-            if ((!rName || rName.replace(/\D/g, "") === cleanC) && e.certInfo?.subject) {
-              rName = e.certInfo.subject.split(":")[0].trim();
-            }
-            let certInfo = e.certInfo;
-            if (certInfo && certInfo.validTo) {
-              const days = calculateDaysRemaining(certInfo.validTo);
-              if (days !== null) {
-                certInfo = {
-                  ...certInfo,
-                  daysRemaining: days,
-                  isExpired: days < 0,
-                };
-              }
-            }
-            return { ...e, razaoSocial: rName || cleanC, certInfo };
-          })
-          .sort((a: EmpresaSefaz, b: EmpresaSefaz) =>
-            (a.razaoSocial || "").localeCompare(b.razaoSocial || "", "pt-BR", {
-              sensitivity: "base",
-              numeric: true,
-            })
-          );
+        const sanitized = normalizarEmpresas(JSON.parse(rawEmpresas));
         setEmpresas(sanitized);
         // Migra senhas antigas salvas em texto aberto para a versão cifrada
         if (sanitized.some((e: EmpresaSefaz) => senhaAberta(e.password))) {
@@ -237,6 +233,28 @@ export default function App() {
 
   const activeEmpresa = empresas.find((e) => e.id === activeEmpresaId) || (empresas.length > 0 ? empresas[0] : null);
 
+  // Lista oficial de empresas no servidor; se estiver vazia, envia a que estiver salva neste navegador
+  useEffect(() => {
+    (async () => {
+      try {
+        const doServidor = normalizarEmpresas(await listarEmpresasServidor());
+        if (doServidor.length > 0) {
+          setEmpresas(doServidor);
+          localStorage.setItem(EMPRESAS_STORAGE_KEY, JSON.stringify(doServidor));
+          setActiveEmpresaId((atual) => {
+            const salvo = atual || localStorage.getItem(ACTIVE_EMPRESA_KEY) || "";
+            return doServidor.some((e) => e.id === salvo) ? salvo : doServidor[0].id;
+          });
+          return;
+        }
+        const locais = normalizarEmpresas(JSON.parse(localStorage.getItem(EMPRESAS_STORAGE_KEY) || "[]"));
+        if (locais.length > 0) await salvarEmpresasServidor(await protegerSenhas(locais));
+      } catch (err) {
+        console.warn("Não foi possível sincronizar o cadastro de empresas com o servidor:", err);
+      }
+    })();
+  }, []);
+
   const handleSaveEmpresas = (updated: EmpresaSefaz[]) => {
     const sorted = [...updated].sort((a, b) =>
       (a.razaoSocial || "").localeCompare(b.razaoSocial || "", "pt-BR", {
@@ -245,11 +263,12 @@ export default function App() {
       })
     );
     setEmpresas(sorted);
-    // Grava no navegador somente com as senhas cifradas
+    // Grava no servidor (lista oficial) e no navegador, sempre com as senhas cifradas
     protegerSenhas(sorted)
-      .then((protegidas) => {
+      .then(async (protegidas) => {
         localStorage.setItem(EMPRESAS_STORAGE_KEY, JSON.stringify(protegidas));
         if (protegidas !== sorted) setEmpresas(protegidas);
+        await salvarEmpresasServidor(protegidas);
       })
       .catch((err) => {
         console.warn("Não foi possível cifrar as senhas dos certificados:", err);

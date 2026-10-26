@@ -936,6 +936,17 @@ export const exportarExcelCompleto = async (params: {
   return await ipc.invoke("relatorio:excel-completo", params);
 };
 
+// Cadastro de empresas guardado no servidor
+export const listarEmpresasServidor = async (): Promise<EmpresaSefaz[]> => {
+  const ipc = getIpc();
+  return (await ipc.invoke("empresas:listar")) || [];
+};
+
+export const salvarEmpresasServidor = async (lista: EmpresaSefaz[]): Promise<EmpresaSefaz[]> => {
+  const ipc = getIpc();
+  return await ipc.invoke("empresas:salvar", lista);
+};
+
 // Cifra senhas de certificado no servidor (AES-256-GCM); o navegador só guarda o texto cifrado
 export const cifrarSenhas = async (senhas: string[]): Promise<string[]> => {
   const ipc = getIpc();
