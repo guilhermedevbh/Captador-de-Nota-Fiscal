@@ -1026,6 +1026,14 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => window.open("/seguranca", "_blank", "noopener")}
+              className="vb-top-btn !px-1.5"
+              title="Central de segurança: proteções, sessões, 2FA e registro de acessos"
+            >
+              <ShieldCheck size={13} className="text-[#16a34a]" />
+            </button>
+
+            <button
               onClick={() => setIsTutorialOpen(true)}
               className="vb-top-btn !px-1.5"
               title="Guia de Utilização e Ajuda do Sistema"
