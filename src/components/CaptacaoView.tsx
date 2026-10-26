@@ -316,6 +316,9 @@ export default function CaptacaoView({
     isBlocked?: boolean;
     remainingMinutes?: number;
     remainingSeconds?: number;
+    tentativas?: number;
+    limiteTentativas?: number;
+    repousoLongo?: boolean;
   } | null>(null);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   const [showForceModal, setShowForceModal] = useState(false);
@@ -1442,7 +1445,7 @@ export default function CaptacaoView({
             onClick={() => handleSyncSefaz()}
             disabled={syncStatus.syncing || !activeEmpresa}
             className="vb-btn vb-btn-primary"
-            title={cooldownRemaining > 0 ? `SEFAZ em repouso (restam ${formatCooldown(cooldownRemaining)})` : "Consultar novas notas fiscais na SEFAZ Nacional (Atalho: F5)"}
+            title={cooldownRemaining > 0 ? `${nsuState?.repousoLongo ? "Limite de tentativas atingido" : `Tentativa ${nsuState?.tentativas || 0} de ${nsuState?.limiteTentativas || 3}`} (restam ${formatCooldown(cooldownRemaining)})` : "Consultar novas notas fiscais na SEFAZ Nacional (Atalho: F5)"}
           >
             <RefreshCw size={13} className={syncStatus.syncing ? "animate-spin text-[#003366]" : "text-[#003366]"} />
             <span>{syncStatus.syncing ? "Sincronizando..." : cooldownRemaining > 0 ? `Repouso (${formatCooldown(cooldownRemaining)})` : "⚡ Sincronizar NF-e (F5)"}</span>
@@ -1455,7 +1458,7 @@ export default function CaptacaoView({
               className="vb-btn vb-btn-danger"
               title="Clique para ver detalhes do repouso ou forçar sincronização"
             >
-              <span>⏳ Repouso: {formatCooldown(cooldownRemaining)}</span>
+              <span>⏳ {nsuState?.repousoLongo ? "Repouso" : `Tentativa ${nsuState?.tentativas || 0}/${nsuState?.limiteTentativas || 3}`}: {formatCooldown(cooldownRemaining)}</span>
             </button>
           )}
 
@@ -2589,7 +2592,7 @@ export default function CaptacaoView({
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-[#f0f0f0] border-2 border-[#aa3333] shadow-2xl max-w-md w-full text-[11px] text-[#000000]">
             <div className="bg-gradient-to-r from-[#aa3333] to-[#cc4444] text-white px-3 py-1.5 flex items-center justify-between">
-              <span className="font-bold text-xs">SEFAZ Nacional em Período de Repouso Preventivo</span>
+              <span className="font-bold text-xs">{nsuState?.repousoLongo ? "Limite de Tentativas Atingido" : "Pausa Entre Tentativas"}</span>
               <button
                 type="button"
                 onClick={() => setShowForceModal(false)}
@@ -2607,8 +2610,14 @@ export default function CaptacaoView({
                     {formatCooldown(cooldownRemaining)}
                   </span>
                 </div>
+                <div className="flex items-center justify-between font-bold">
+                  <span>Tentativas na última hora:</span>
+                  <span className="font-mono">{nsuState?.tentativas || 0} de {nsuState?.limiteTentativas || 3}</span>
+                </div>
                 <p className="text-[10px] text-[#664d03]">
-                  A SEFAZ Nacional exige intervalo de 1 hora após confirmação de fim de documentos ou notificação de consumo indevido. Liberação normal prevista para às{" "}
+                  {nsuState?.repousoLongo
+                    ? "As 3 tentativas foram usadas. Para evitar o bloqueio da SEFAZ (Rejeição 656), a próxima consulta fica liberada às "
+                    : "Pausa curta entre tentativas. Você pode aguardar ou consultar agora (conta como tentativa). Liberação às "}
                   <strong>{new Date(nsuState?.blockedUntil || "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</strong>.
                 </p>
               </div>
@@ -2622,16 +2631,18 @@ export default function CaptacaoView({
                   Aguardar (Recomendado)
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowForceModal(false);
-                    handleSyncSefaz({ forceSync: true });
-                  }}
-                  className="vb-btn vb-btn-danger font-bold"
-                >
-                  Forçar Consulta Mesmo Assim
-                </button>
+                {!nsuState?.repousoLongo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForceModal(false);
+                      handleSyncSefaz({ forceSync: true });
+                    }}
+                    className="vb-btn vb-btn-danger font-bold"
+                  >
+                    Consultar Agora
+                  </button>
+                )}
               </div>
             </div>
           </div>
