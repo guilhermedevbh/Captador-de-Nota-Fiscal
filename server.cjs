@@ -45,6 +45,10 @@ app.set('trust proxy', 1);
 // ------------------------------------------------------------------
 const APP_USER = process.env.APP_USER || 'admin';
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const APP_PASSWORD_HASH = process.env.APP_PASSWORD_HASH || '';
+const senhaConfigurada = !!(APP_PASSWORD_HASH || APP_PASSWORD);
+const conferirSenha = (senha) => (APP_PASSWORD_HASH ? seg.verificarHashSenha(senha, APP_PASSWORD_HASH) : !!APP_PASSWORD && seg.compararSeguro(senha, APP_PASSWORD));
+const listaIps = seg.criarListaIps(process.env.IPS_PERMITIDOS);
 const totp = seg.criarTotp(process.env.APP_TOTP_SECRET);
 const sessoes = seg.criarSessoes({
   horasMaximas: Number(process.env.SESSAO_HORAS) || 12,
@@ -55,9 +59,9 @@ const limiteApi = seg.limitarRequisicoes({ maximo: 600, janelaMs: 60 * 1000 });
 const auditoria = seg.criarAuditoria(userDataDir);
 const guardaCaminhos = seg.criarGuardaCaminhos([userDataDir]);
 
-if (!APP_PASSWORD) {
-  console.warn('[Login] APP_PASSWORD não definida: o acesso ficará bloqueado até configurá-la.');
-} else if (!seg.avaliarSenha(APP_PASSWORD).forte) {
+if (!senhaConfigurada) {
+  console.warn('[Login] APP_PASSWORD_HASH/APP_PASSWORD não definida: o acesso ficará bloqueado até configurá-la.');
+} else if (!APP_PASSWORD_HASH && !seg.avaliarSenha(APP_PASSWORD).forte) {
   console.warn(`[Segurança] ${seg.avaliarSenha(APP_PASSWORD).motivo}`);
 }
 
@@ -71,6 +75,8 @@ try {
 
 app.use(seg.forcarHttps(EM_PRODUCAO));
 app.use(seg.cabecalhos(() => hashesScripts));
+app.use(listaIps.middleware(auditoria));
+app.use(seg.criarProtecaoBots(auditoria));
 app.use(seg.verificarOrigem);
 
 app.get('/robots.txt', (req, res) => res.type('text').send('User-agent: *\nDisallow: /\n'));
@@ -92,8 +98,8 @@ h1{font-size:20px;margin:0 0 20px}label{display:block;font-size:13px;margin:12px
 input{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0}
 button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
 .err{background:#7f1d1d;padding:8px 10px;border-radius:6px;font-size:13px}
-.credito{margin-top:18px;text-align:center;font-size:12px;color:#94a3b8}.credito strong{color:#e2e8f0}</style></head><body>
-<form method="post" action="/login"><div class="marca"><img src="/marca/simbolo.png" alt="" width="92" height="92"><div class="nome" role="img" aria-label="${APP_NAME}"><span class="t1">CAPTADOR</span><span class="t2">DOCUMENTOS FISCAIS</span></div></div>${error ? `<div class="err">${seg.escaparHtml(error)}</div>` : ''}
+.armadilha{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}.credito{margin-top:18px;text-align:center;font-size:12px;color:#94a3b8}.credito strong{color:#e2e8f0}</style></head><body>
+<form method="post" action="/login"><input type="hidden" name="token" value="${seg.criarTokenLogin()}"><div class="armadilha" aria-hidden="true"><label for="site">Site</label><input id="site" name="site" tabindex="-1" autocomplete="off"></div><div class="marca"><img src="/marca/simbolo.png" alt="" width="92" height="92"><div class="nome" role="img" aria-label="${APP_NAME}"><span class="t1">CAPTADOR</span><span class="t2">DOCUMENTOS FISCAIS</span></div></div>${error ? `<div class="err">${seg.escaparHtml(error)}</div>` : ''}
 <label for="usuario">Usuário</label><input id="usuario" name="usuario" autocomplete="username" maxlength="100" required autofocus>
 <label for="senha">Senha</label><input id="senha" name="senha" type="password" autocomplete="current-password" maxlength="200" required>
 ${totp.ativo ? '<label for="codigo">Código do autenticador (6 dígitos)</label><input id="codigo" name="codigo" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>' : ''}
@@ -119,8 +125,16 @@ app.post('/login', express.urlencoded({ extended: false, limit: '10kb' }), async
   }
   await sleep(limitadorLogin.atrasoMs());
 
+  // Robôs: campo-armadilha preenchido, formulário não carregado ou enviado rápido demais
+  if (req.body?.site || !seg.validarTokenLogin(req.body?.token)) {
+    limitadorLogin.falha(ip);
+    auditoria.registrar('robo_bloqueado', req, { detalhe: req.body?.site ? 'campo-armadilha preenchido' : 'formulário inválido ou enviado rápido demais' });
+    await sleep(800);
+    return res.status(400).type('html').send(loginPage('Não foi possível validar o formulário. Recarregue a página e tente novamente.'));
+  }
+
   const usuario = String(req.body?.usuario || '');
-  const senhaOk = !!APP_PASSWORD && seg.compararSeguro(usuario, APP_USER) && seg.compararSeguro(String(req.body?.senha || ''), APP_PASSWORD);
+  const senhaOk = senhaConfigurada && seg.compararSeguro(usuario, APP_USER) && conferirSenha(String(req.body?.senha || ''));
   const ok = senhaOk && (!totp.ativo || totp.verificar(req.body?.codigo));
   if (!ok) {
     limitadorLogin.falha(ip);
@@ -146,7 +160,7 @@ app.use((req, res, next) => {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
     return res.redirect('/login');
   }
-  if (req.path.startsWith('/api/') && !limiteApi(sessao.id)) {
+  if (!limiteApi(sessao.id)) {
     auditoria.registrar('limite_api', req, { detalhe: 'excesso de requisições' });
     return res.status(429).json({ error: 'Muitas requisições em pouco tempo. Aguarde um minuto.' });
   }
@@ -154,17 +168,46 @@ app.use((req, res, next) => {
   next();
 });
 
+// Mensagens de erro sem caminhos internos do servidor
+const escaparRegex = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const PASTAS_INTERNAS = [userDataDir, __dirname, require('os').tmpdir()].filter(Boolean).sort((a, b) => b.length - a.length);
+const semCaminhosInternos = (msg) => PASTAS_INTERNAS.reduce((m, p) => m.replace(new RegExp(escaparRegex(p), 'g'), '[servidor]'), String(msg));
+
 // ------------------------------------------------------------------
 // Painel de segurança (/seguranca)
 // ------------------------------------------------------------------
 const fmtDataHora = (ms) => new Date(ms).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 const NOMES_EVENTO = {
   login_ok: 'Login realizado', login_falha: 'Tentativa de login falhou', login_bloqueado: 'IP bloqueado (força bruta)',
-  logout: 'Saída do sistema', sessoes_encerradas: 'Outras sessões encerradas', limite_api: 'Excesso de requisições', caminho_bloqueado: 'Acesso a arquivo fora da área permitida bloqueado'
+  logout: 'Saída do sistema', sessoes_encerradas: 'Outras sessões encerradas', limite_api: 'Excesso de requisições',
+  robo_bloqueado: 'Robô bloqueado no login', ip_banido: 'IP banido (varredura)', ip_nao_autorizado: 'IP não autorizado', entrada_invalida: 'Parâmetro inválido bloqueado', caminho_bloqueado: 'Acesso a arquivo fora da área permitida bloqueado'
 };
 
 function paginaSeguranca(req, aviso) {
-  const senha = seg.avaliarSenha(APP_PASSWORD);
+  const senha = APP_PASSWORD_HASH ? { forte: true, motivo: 'Senha guardada apenas como hash (scrypt) em APP_PASSWORD_HASH.' } : seg.avaliarSenha(APP_PASSWORD);
+  const chaveMestraEnv = !!(process.env.CAPTADOR_CHAVE_MESTRA && process.env.CAPTADOR_CHAVE_MESTRA.length >= 16);
+  const checklist = [
+    ['Esconder API Keys', true, 'Nenhuma chave de API no código do navegador; integrações (SEFAZ, ADN, CNPJ) rodam só no servidor.'],
+    ['Limpar secrets do Git', true, 'Histórico verificado sem senhas, chaves ou certificados; .gitignore bloqueia .env, .pfx, .p12, .pem e .key; segredos só em variáveis do Railway.'],
+    ['Usar apenas chave pública no navegador', true, 'O navegador não guarda nenhum segredo utilizável: senhas de certificado ficam cifradas pelo servidor (AES-256-GCM).'],
+    ['Controle de acesso por registro (RLS)', true, 'Sem banco exposto: o SQLite fica só no servidor, toda rota exige sessão válida e os arquivos ficam presos à pasta de dados.'],
+    ['Criptografia de dados', chaveMestraEnv, chaveMestraEnv ? 'Senhas e estado cifrados com AES-256-GCM usando a chave mestra da variável CAPTADOR_CHAVE_MESTRA; HTTPS em trânsito.' : 'Senhas e estado cifrados com AES-256-GCM (chave mestra gerada no servidor). Recomendado: definir CAPTADOR_CHAVE_MESTRA no Railway.'],
+    ['Autenticação no servidor', true, 'Login, sessão e 2FA validados no servidor; nada depende do navegador.'],
+    ['Restringir acessos', true, listaIps.ativa ? 'Somente os IPs de IPS_PERMITIDOS acessam o site; API limitada à pasta de dados.' : 'API limitada à pasta de dados. Opcional: IPS_PERMITIDOS para liberar só os IPs do escritório.'],
+    ['Bloquear mass assignment', true, 'Agendadores e configurações aceitam apenas os campos permitidos; chaves __proto__/constructor rejeitadas.'],
+    ['Proteger cookies', true, 'HttpOnly, Secure, SameSite=Strict, prefixo __Host-, preso ao navegador e invalidado ao sair.'],
+    ['Hash nas senhas', !!APP_PASSWORD_HASH, APP_PASSWORD_HASH ? 'Senha do site guardada só como hash scrypt.' : 'Gere o hash abaixo e troque APP_PASSWORD por APP_PASSWORD_HASH no Railway.'],
+    ['Rate limit', true, 'Login: 5 tentativas por IP a cada 15 min + atraso progressivo; 600 requisições/min por sessão.'],
+    ['Proteção contra robôs', true, 'Campo-armadilha e token de tempo no login, bloqueio de varredores (sqlmap, nikto...) e banimento de IP que sonda falhas.'],
+    ['Queries parametrizadas', true, 'Todas as consultas ao SQLite usam parâmetros (prepared statements).'],
+    ['Validação dos inputs', true, 'CNPJ, chaves, datas, competências e NSU validados; tamanhos e profundidade limitados; caracteres nulos rejeitados.'],
+    ['Evitar vazamento de conteúdo', true, 'Erros sem detalhes internos ou caminhos do servidor; senhas removidas de logs e respostas; sem mapas de código-fonte.'],
+    ['Restringir uploads', true, 'Somente .pfx/.p12 com estrutura PKCS#12 válida, até 2 MB, nome higienizado e gravação com permissão 600.'],
+    ['Limitar respostas da API', true, 'Respostas sem campos sensíveis, sem cache (no-store) e corpo das requisições limitado.'],
+    ['Security headers', true, 'CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP/CORP e X-Robots-Tag.'],
+    ['Forçar HTTPS', req.secure, req.secure ? 'Redirecionamento automático para HTTPS e HSTS de 2 anos.' : 'Acesse pelo domínio https:// do Railway (o redirecionamento é automático em produção).'],
+    ['Scan de dependências', true, 'npm audit sem falhas aplicáveis; Dependabot e verificação semanal configurados no GitHub.']
+  ];
   const inatividade = process.env.SESSAO_INATIVIDADE_MIN != null ? Number(process.env.SESSAO_INATIVIDADE_MIN) : 120;
   const item = (ok, titulo, texto) => `<li class="${ok ? 'ok' : 'alerta'}"><b>${ok ? '✔' : '!'}</b><div><strong>${titulo}</strong><span>${texto}</span></div></li>`;
   const segredo = seg.gerarSegredoTotp();
@@ -205,6 +248,16 @@ ${item(true, 'Arquivos do servidor protegidos', 'A API só aceita caminhos dentr
 ${item(true, 'Limite de requisições', 'Até 600 chamadas por minuto por sessão, contra abuso e automação maliciosa.')}
 </ul></section>
 
+<section class="card"><h2>Checklist de blindagem (${checklist.filter((c) => c[1]).length}/20)</h2><ul class="status">
+${checklist.map(([titulo, ok, texto], i) => item(ok, `${i + 1}. ${titulo}`, texto)).join('')}
+</ul></section>
+
+<section class="card"><h2>Senha do site em hash</h2>
+<p>Gere o hash da senha e, no Railway, crie <code>APP_PASSWORD_HASH</code> com o valor gerado e <strong>apague</strong> a variável <code>APP_PASSWORD</code>. Assim nem quem tiver acesso às variáveis consegue ver a senha.</p>
+<form method="post" action="/seguranca/hash-senha"><input type="password" name="senha" autocomplete="new-password" placeholder="Senha do site" style="width:240px" required> <button type="submit">Gerar hash</button></form>
+${aviso && aviso.hash ? `<p>Hash gerado (copie inteiro):</p><p><code>${seg.escaparHtml(aviso.hash)}</code></p>` : ''}
+</section>
+
 <section class="card"><h2>Sessões abertas (${sessoesAtivas.length})</h2><div class="tabela"><table><thead><tr><th>Início</th><th>Último uso</th><th>IP</th><th>Navegador</th></tr></thead><tbody>
 ${sessoesAtivas.map((s) => `<tr><td>${fmtDataHora(s.criada)}${s.id === req.sessao.id ? ' <b>(esta)</b>' : ''}</td><td>${fmtDataHora(s.ultimoAcesso)}</td><td>${seg.escaparHtml(s.ip)}</td><td>${seg.escaparHtml(s.descricao)}</td></tr>`).join('')}
 </tbody></table></div>
@@ -225,7 +278,7 @@ ${totp.ativo
 </div></div></section>
 
 <section class="card"><h2>Últimos acessos e tentativas</h2><div class="tabela"><table><thead><tr><th>Data/hora</th><th>Evento</th><th>IP</th><th>Detalhe</th><th>Navegador</th></tr></thead><tbody>
-${acessos.length ? acessos.map((a) => `<tr><td>${fmtDataHora(Date.parse(a.data))}</td><td class="${/falha|bloque|limite|caminho/.test(a.evento) ? 'falha' : a.evento === 'login_ok' ? 'okv' : ''}">${seg.escaparHtml(NOMES_EVENTO[a.evento] || a.evento)}</td><td>${seg.escaparHtml(a.ip)}</td><td>${seg.escaparHtml([a.usuario ? `usuário: ${a.usuario}` : '', a.detalhe || ''].filter(Boolean).join(' — '))}</td><td>${seg.escaparHtml(a.navegador)}</td></tr>`).join('') : '<tr><td colspan="5">Nenhum registro ainda.</td></tr>'}
+${acessos.length ? acessos.map((a) => `<tr><td>${fmtDataHora(Date.parse(a.data))}</td><td class="${/falha|bloque|limite|caminho|robo|banido|autorizado|invalida/.test(a.evento) ? 'falha' : a.evento === 'login_ok' ? 'okv' : ''}">${seg.escaparHtml(NOMES_EVENTO[a.evento] || a.evento)}</td><td>${seg.escaparHtml(a.ip)}</td><td>${seg.escaparHtml([a.usuario ? `usuário: ${a.usuario}` : '', a.detalhe || ''].filter(Boolean).join(' — '))}</td><td>${seg.escaparHtml(a.navegador)}</td></tr>`).join('') : '<tr><td colspan="5">Nenhum registro ainda.</td></tr>'}
 </tbody></table></div></section>
 </main></body></html>`;
 }
@@ -237,6 +290,13 @@ app.post('/seguranca/2fa/testar', express.urlencoded({ extended: false, limit: '
   res.type('html').send(paginaSeguranca(req, ok
     ? { ok: true, texto: `Código correto! Agora crie no Railway a variável APP_TOTP_SECRET = ${req.body.segredo}` }
     : { ok: false, texto: 'Código incorreto. Confira se a hora do celular está automática e tente de novo (um novo QR Code foi gerado; leia-o novamente).' }));
+});
+
+app.post('/seguranca/hash-senha', express.urlencoded({ extended: false, limit: '2kb' }), (req, res) => {
+  const senha = String(req.body?.senha || '');
+  const avaliacao = seg.avaliarSenha(senha);
+  if (!avaliacao.forte) return res.type('html').send(paginaSeguranca(req, { ok: false, texto: `Escolha uma senha mais forte: ${avaliacao.motivo}` }));
+  res.type('html').send(paginaSeguranca(req, { ok: true, texto: 'Hash gerado. Use-o em APP_PASSWORD_HASH e remova APP_PASSWORD.', hash: seg.gerarHashSenha(senha) }));
 });
 
 app.post('/seguranca/sessoes/encerrar', (req, res) => {
@@ -289,6 +349,12 @@ app.post('/api/invoke/:channel', express.json({ limit: '50mb' }), async (req, re
     auditoria.registrar('caminho_bloqueado', req, { detalhe: `canal ${channel}` });
     return res.status(err.status || 400).json({ error: err.message });
   }
+  try {
+    seg.validarEntradas(args);
+  } catch (err) {
+    auditoria.registrar('entrada_invalida', req, { detalhe: `canal ${channel}: ${err.message}` });
+    return res.status(err.status || 400).json({ error: err.message });
+  }
   const ctx = {
     openPaths,
     downloads: [],
@@ -323,10 +389,10 @@ app.post('/api/invoke/:channel', express.json({ limit: '50mb' }), async (req, re
         return { url: `/api/file/${token}/${encodeURIComponent(filename)}`, filename };
       });
 
-    res.json({ result: result === undefined ? null : result, downloads, opens, folders: ctx.folders });
+    res.json({ result: result === undefined ? null : seg.ocultarSegredos(result), downloads, opens, folders: ctx.folders });
   } catch (err) {
     console.error(`[Servidor] Erro no canal ${channel}:`, err);
-    res.status(500).json({ error: err?.message || String(err) });
+    res.status(500).json({ error: semCaminhosInternos(err?.message || String(err)) });
   }
 });
 
@@ -358,7 +424,7 @@ app.get('/api/events', (req, res) => {
 // ------------------------------------------------------------------
 // Upload do certificado digital A1
 // ------------------------------------------------------------------
-app.post('/api/upload-cert', express.raw({ type: '*/*', limit: '20mb' }), (req, res) => {
+app.post('/api/upload-cert', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => {
   try {
     const originalName = path.basename(String(req.query.name || 'certificado.pfx'));
     const ext = path.extname(originalName).toLowerCase();

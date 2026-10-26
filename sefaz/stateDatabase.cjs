@@ -2,8 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
+const { obterChaveMestra } = require('./chaveMestra.cjs');
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+// Semente da versão anterior: usada apenas para ler registros antigos (regravados com a chave mestra)
 const SECRET_SEED = 'CONT_AI_FISCAL_SECURE_STORAGE_V1_2026';
 const SALT = 'cont_ai_salt_appdata_sqlite_v1';
 
@@ -17,7 +19,8 @@ class StateDatabase {
     }
 
     this.dbPath = path.join(this.userDataDir, 'contai_state.sqlite');
-    this.key = crypto.scryptSync(SECRET_SEED, SALT, 32);
+    this.key = crypto.scryptSync(obterChaveMestra(), SALT, 32);
+    this.legacyKey = crypto.scryptSync(SECRET_SEED, SALT, 32);
     this.migratedCnpjs = new Set();
 
     this.initDatabase();
@@ -73,16 +76,17 @@ class StateDatabase {
   }
 
   decrypt(payload, ivHex, tagHex) {
-    try {
-      const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, this.key, Buffer.from(ivHex, 'hex'));
-      decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-      let decrypted = decipher.update(payload, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-      return JSON.parse(decrypted);
-    } catch (err) {
-      console.warn('[StateDatabase] Erro ao descriptografar registro:', err.message);
-      return null;
+    for (const key of [this.key, this.legacyKey]) {
+      try {
+        const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, Buffer.from(ivHex, 'hex'));
+        decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+        let decrypted = decipher.update(payload, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return JSON.parse(decrypted);
+      } catch (_) {}
     }
+    console.warn('[StateDatabase] Não foi possível descriptografar um registro.');
+    return null;
   }
 
   cleanCnpj(cnpj) {

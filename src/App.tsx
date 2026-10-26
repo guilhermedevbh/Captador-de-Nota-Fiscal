@@ -26,6 +26,18 @@ import { calculateDaysRemaining } from "./utils/certUtils";
 import DifalView from "./components/DifalView";
 import { Calculator, FileText, Layers, RefreshCw, CheckCircle2, Building2, Building, Printer, HelpCircle, DownloadCloud, ShieldCheck, Landmark, ShoppingBag, AlertCircle, Truck, Settings, FolderOpen, LogOut, Moon, Sun } from "lucide-react";
 import { aplicarTema, temaAtual, Tema } from "./utils/tema";
+import { cifrarSenhas } from "./utils/electronBridge";
+
+const senhaAberta = (s?: string) => !!s && !s.startsWith("enc:") && !s.startsWith("enc2:");
+
+// Substitui senhas de certificado em texto aberto pela versão cifrada no servidor
+const protegerSenhas = async (lista: EmpresaSefaz[]): Promise<EmpresaSefaz[]> => {
+  const abertas = lista.filter((e) => senhaAberta(e.password));
+  if (abertas.length === 0) return lista;
+  const cifradas = await cifrarSenhas(abertas.map((e) => e.password as string));
+  const porId = new Map(abertas.map((e, i) => [e.id, cifradas[i]]));
+  return lista.map((e) => (porId.has(e.id) ? { ...e, password: porId.get(e.id) } : e));
+};
 import ReportPrintModal from "./components/ReportPrintModal";
 import OnboardingModal from "./components/OnboardingModal";
 import CaptacaoView from "./components/CaptacaoView";
@@ -181,6 +193,15 @@ export default function App() {
             })
           );
         setEmpresas(sanitized);
+        // Migra senhas antigas salvas em texto aberto para a versão cifrada
+        if (sanitized.some((e: EmpresaSefaz) => senhaAberta(e.password))) {
+          protegerSenhas(sanitized)
+            .then((protegidas) => {
+              localStorage.setItem(EMPRESAS_STORAGE_KEY, JSON.stringify(protegidas));
+              setEmpresas(protegidas);
+            })
+            .catch(() => {});
+        }
         const rawActiveId = localStorage.getItem(ACTIVE_EMPRESA_KEY);
         if (rawActiveId && sanitized.some((e: EmpresaSefaz) => e.id === rawActiveId)) {
           setActiveEmpresaId(rawActiveId);
@@ -224,7 +245,16 @@ export default function App() {
       })
     );
     setEmpresas(sorted);
-    localStorage.setItem(EMPRESAS_STORAGE_KEY, JSON.stringify(sorted));
+    // Grava no navegador somente com as senhas cifradas
+    protegerSenhas(sorted)
+      .then((protegidas) => {
+        localStorage.setItem(EMPRESAS_STORAGE_KEY, JSON.stringify(protegidas));
+        if (protegidas !== sorted) setEmpresas(protegidas);
+      })
+      .catch((err) => {
+        console.warn("Não foi possível cifrar as senhas dos certificados:", err);
+        localStorage.setItem(EMPRESAS_STORAGE_KEY, JSON.stringify(sorted));
+      });
   };
 
   const handleSelectEmpresa = (id: string) => {
