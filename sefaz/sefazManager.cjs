@@ -17,6 +17,37 @@ const { explicarCStat, validarCertificadoDaEmpresa } = require('./sefazStatus.cj
 // Respostas da SEFAZ que indicam indisponibilidade passageira (vale tentar de novo)
 const SEFAZ_INSTAVEL = new Set(['108', '109', '999']);
 
+// Consultas sem novidade (137, fim da fila ou 656): as primeiras ganham só uma pausa curta,
+// e ao atingir o limite dentro de 1 hora entra o repouso longo exigido pela NT 2014.002
+const LIMITE_TENTATIVAS = 3;
+const PAUSA_CURTA_MS = 2 * 60 * 1000;
+const REPOUSO_MS = 60 * 60 * 1000;
+
+function registrarTentativaSemNovidade(state, cStat) {
+  const agora = Date.now();
+  const inicio = state.tentativasInicio ? new Date(state.tentativasInicio).getTime() : 0;
+  if (!inicio || agora - inicio > REPOUSO_MS) {
+    state.tentativas = 0;
+    state.tentativasInicio = new Date(agora).toISOString();
+  }
+  state.tentativas = (state.tentativas || 0) + 1;
+  state.lastCStat = cStat;
+  state.lastSyncTime = new Date(agora).toISOString();
+  state.repousoLongo = state.tentativas >= LIMITE_TENTATIVAS;
+  state.blockedUntil = new Date(agora + (state.repousoLongo ? REPOUSO_MS : PAUSA_CURTA_MS)).toISOString();
+  return state.repousoLongo
+    ? `Limite de ${LIMITE_TENTATIVAS} tentativas atingido. Nova consulta liberada em 1 hora.`
+    : `Tentativa ${state.tentativas} de ${LIMITE_TENTATIVAS}. Nova consulta liberada em 2 min.`;
+}
+
+function limparRepouso(state) {
+  delete state.blockedUntil;
+  delete state.lastCStat;
+  delete state.tentativas;
+  delete state.tentativasInicio;
+  delete state.repousoLongo;
+}
+
 const UF_TO_IBGE = {
   RO: '11', AC: '12', AM: '13', RR: '14', PA: '15', AP: '16', TO: '17',
   MA: '21', PI: '22', CE: '23', RN: '24', PB: '25', PE: '26', AL: '27',
@@ -225,6 +256,9 @@ class SefazManager {
       lastCStat: state.lastCStat || null,
       blockedUntil: state.blockedUntil || null,
       isBlocked,
+      tentativas: isBlocked ? (state.tentativas || 0) : 0,
+      limiteTentativas: LIMITE_TENTATIVAS,
+      repousoLongo: isBlocked && !!state.repousoLongo,
       remainingMinutes,
       remainingSeconds,
       totalDownloaded: Object.keys(state.downloadedKeys || {}).length,
@@ -248,8 +282,7 @@ class SefazManager {
       this.stateDb.clearMetadataCache(cleanCnpj);
     }
     // Ao redefinir o NSU manualmente, remove o bloqueio local para permitir a nova varredura
-    delete state.blockedUntil;
-    delete state.lastCStat;
+    limparRepouso(state);
     storage.saveState(state);
 
     if (clearFiles && fs.existsSync(companyDir)) {
@@ -320,8 +353,7 @@ class SefazManager {
       if (clearManifestations) {
         state.manifestedKeys = {};
       }
-      delete state.blockedUntil;
-      delete state.lastCStat;
+      limparRepouso(state);
       storage.saveState(state);
     }
 
@@ -331,11 +363,14 @@ class SefazManager {
     const isBlocked = blockedUntilMs > now;
     const remainingMinutes = Math.ceil((blockedUntilMs - now) / 60000);
 
-    const pularNsu = isBlocked && !forceSync;
+    // A pausa curta entre tentativas pode ser forçada; o repouso de 1h após o limite de tentativas, não
+    const pularNsu = isBlocked && (!forceSync || state.repousoLongo);
     if (pularNsu && this.listarNfePendentes(state).length === 0) {
-      const reason = state.lastCStat === '656'
-        ? 'Aviso da SEFAZ: Consumo Indevido (Rejeição 656)'
-        : 'SEFAZ já confirmou que não há novos documentos (cStat 137)';
+      const reason = state.repousoLongo
+        ? `Limite de ${LIMITE_TENTATIVAS} tentativas atingido${state.lastCStat === '656' ? ' (SEFAZ: Consumo Indevido - Rejeição 656)' : ''}`
+        : state.lastCStat === '656'
+          ? 'Aviso da SEFAZ: Consumo Indevido (Rejeição 656)'
+          : 'SEFAZ já confirmou que não há novos documentos (cStat 137)';
       return {
         success: false,
         isCooldown: true,
@@ -419,18 +454,15 @@ class SefazManager {
 
       if (response.cStat === '137') {
         state.maxNSU = response.maxNSU || state.maxNSU;
-        state.lastSyncTime = new Date().toISOString();
-        state.lastCStat = '137';
-        // Cooldown preventivo de 1 hora conforme NT 2014.002
-        state.blockedUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        const avisoTentativa = registrarTentativaSemNovidade(state, '137');
         storage.saveState(state);
         if (onProgress) {
           const semDocumentos = String(state.ultNSU).replace(/^0+/, '') === '' && String(response.maxNSU || '0').replace(/^0+/, '') === '';
           onProgress({
             status: 'info',
             message: semDocumentos
-              ? 'SEFAZ: 137 - Nenhum documento localizado. A SEFAZ não tem NF-e para este CNPJ nos últimos 90 dias. Confira se o CNPJ cadastrado é o que aparece nas notas (matriz x filial). Nova consulta liberada em 1h.'
-              : `SEFAZ: 137 - Todas as notas disponíveis já foram baixadas (NSU ${response.ultNSU || state.ultNSU} de ${response.maxNSU || state.maxNSU}). Nova consulta liberada em 1h.`
+              ? `SEFAZ: 137 - Nenhum documento localizado. A SEFAZ não tem NF-e para este CNPJ nos últimos 90 dias. Confira se o CNPJ cadastrado é o que aparece nas notas (matriz x filial). ${avisoTentativa}`
+              : `SEFAZ: 137 - Todas as notas disponíveis já foram baixadas (NSU ${response.ultNSU || state.ultNSU} de ${response.maxNSU || state.maxNSU}). ${avisoTentativa}`
           });
         }
         break;
@@ -446,11 +478,9 @@ class SefazManager {
       }
 
       if (response.cStat === '656') {
-        state.lastSyncTime = new Date().toISOString();
-        state.lastCStat = '656';
-        state.blockedUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        const avisoTentativa = registrarTentativaSemNovidade(state, '656');
         storage.saveState(state);
-        throw new Error('Aviso da SEFAZ: Consumo Indevido (Rejeição 656). A SEFAZ bloqueou temporariamente novas consultas. Aguarde 1 hora antes de consultar novamente.');
+        throw new Error(`Aviso da SEFAZ: Consumo Indevido (Rejeição 656). ${avisoTentativa}`);
       }
 
       if (response.cStat === '138') {
@@ -536,8 +566,8 @@ class SefazManager {
           }
           await sleep(2500); // Pausa de 2,5s recomendada pela SEFAZ
         } else {
-          // Chegou ao fim de todas as notas disponíveis: ativa repouso preventivo de 1h
-          state.blockedUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+          // Chegou ao fim de todas as notas disponíveis: conta como tentativa (pausa curta ou repouso de 1h)
+          registrarTentativaSemNovidade(state, '138');
           storage.saveState(state);
           continuar = false;
         }
