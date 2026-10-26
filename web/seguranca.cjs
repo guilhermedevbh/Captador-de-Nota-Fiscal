@@ -93,12 +93,16 @@ function forcarHttps(ativo) {
 
 // Bloqueia requisições que alteram dados vindas de outro site (CSRF)
 function verificarOrigem(req, res, next) {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  // O login tem proteção própria (token do formulário, que outro site não consegue ler)
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/login') return next();
   if (req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).json({ error: 'Requisição de outra origem bloqueada.' });
   const origem = req.headers.origin;
   if (origem && origem !== 'null') {
+    // Atrás de proxy (Railway), o domínio público pode chegar em X-Forwarded-Host
+    const hostsDoSite = [req.headers.host, String(req.headers['x-forwarded-host'] || '').split(',')[0].trim(), req.hostname].filter(Boolean);
     try {
-      if (new URL(origem).host !== req.headers.host) return res.status(403).json({ error: 'Requisição de outra origem bloqueada.' });
+      const host = new URL(origem).host;
+      if (!hostsDoSite.some((h) => h === host || h.split(':')[0] === host.split(':')[0])) return res.status(403).json({ error: 'Requisição de outra origem bloqueada.' });
     } catch (_) {
       return res.status(403).json({ error: 'Origem inválida.' });
     }
@@ -380,7 +384,7 @@ function validarTokenLogin(token) {
   const esperado = crypto.createHmac('sha256', CHAVE_FORMULARIO).update(ts).digest('hex').slice(0, 32);
   if (!compararSeguro(assinatura, esperado)) return false;
   const idade = Date.now() - Number(ts);
-  return idade >= 1200 && idade <= 2 * HORA;
+  return idade >= 400 && idade <= 12 * HORA;
 }
 
 // Varredores automáticos (scanners) e sondagem de falhas conhecidas: 404 e, após 5 tentativas, IP banido por 1 hora
