@@ -4,6 +4,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const forge = require('node-forge');
 const { resolverCertificado, MSG_CERT_AUSENTE } = require('./certResolver.cjs');
+const { decryptPassword } = require('../nfse/cryptoUtils.cjs');
 
 function traduzirErroCertificado(err) {
   const msg = String((err && err.message) || err);
@@ -23,7 +24,7 @@ function traduzirErroCertificado(err) {
 class CertManager {
   constructor(certPath, password) {
     this.certPath = certPath;
-    this.password = password || '';
+    this.password = decryptPassword(password || '');
     this.pfxBuffer = null;
     this.certPem = null;
     this.keyPem = null;

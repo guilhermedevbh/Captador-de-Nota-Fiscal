@@ -339,6 +339,155 @@ function criarGuardaCaminhos(raizes) {
   return { verificar, permitido };
 }
 
+// ------------------------------------------------------------------
+// Senha do site guardada como hash (scrypt) em APP_PASSWORD_HASH
+// ------------------------------------------------------------------
+function gerarHashSenha(senha) {
+  const sal = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(senha), sal, 64, { N: 16384, r: 8, p: 1 });
+  return `scrypt$16384$8$1$${sal.toString('base64')}$${hash.toString('base64')}`;
+}
+
+function verificarHashSenha(senha, armazenado) {
+  const partes = String(armazenado || '').split('$');
+  if (partes.length !== 6 || partes[0] !== 'scrypt') return false;
+  const [, N, r, p, salB64, hashB64] = partes;
+  const esperado = Buffer.from(hashB64, 'base64');
+  try {
+    const calculado = crypto.scryptSync(String(senha), Buffer.from(salB64, 'base64'), esperado.length, { N: +N, r: +r, p: +p, maxmem: 64 * 1024 * 1024 });
+    return calculado.length === esperado.length && crypto.timingSafeEqual(calculado, esperado);
+  } catch (_) {
+    return false;
+  }
+}
+
+// ------------------------------------------------------------------
+// Proteção contra robôs
+// ------------------------------------------------------------------
+const CHAVE_FORMULARIO = crypto.randomBytes(32);
+const UA_VARREDORES = /(sqlmap|nikto|nmap|masscan|zgrab|nuclei|wpscan|dirbuster|gobuster|feroxbuster|ffuf|hydra|medusa|acunetix|nessus|openvas|w3af|arachni|skipfish|netsparker|burpcollaborator|commix|python-requests|python-urllib|aiohttp|curl\/|wget\/|libwww-perl|go-http-client|java\/|okhttp|scrapy|httpie)/i;
+const CAMINHOS_SONDAGEM = /^\/(\.env|\.git|\.svn|\.hg|\.aws|\.ssh|\.DS_Store|\.vscode|wp-|wordpress|xmlrpc\.php|phpmyadmin|pma|myadmin|admin\.php|administrator|cgi-bin|vendor\/|config\.(php|json|yml)|server-status|actuator|solr|boaform|HNAP1|owa\/|autodiscover|backup|db\.sql|dump\.sql|.*\.(php|asp|aspx|jsp|cgi)$)/i;
+
+// Token do formulário de login: prova que a página foi carregada e não foi preenchida por robô em milissegundos
+function criarTokenLogin() {
+  const ts = String(Date.now());
+  return `${ts}.${crypto.createHmac('sha256', CHAVE_FORMULARIO).update(ts).digest('hex').slice(0, 32)}`;
+}
+
+function validarTokenLogin(token) {
+  const [ts, assinatura] = String(token || '').split('.');
+  if (!ts || !assinatura) return false;
+  const esperado = crypto.createHmac('sha256', CHAVE_FORMULARIO).update(ts).digest('hex').slice(0, 32);
+  if (!compararSeguro(assinatura, esperado)) return false;
+  const idade = Date.now() - Number(ts);
+  return idade >= 1200 && idade <= 2 * HORA;
+}
+
+// Varredores automáticos (scanners) e sondagem de falhas conhecidas: 404 e, após 5 tentativas, IP banido por 1 hora
+function criarProtecaoBots(auditoria) {
+  const sondagens = new Map();
+  const banidos = new Map();
+  return (req, res, next) => {
+    const ip = req.ip;
+    const ban = banidos.get(ip);
+    if (ban && ban > Date.now()) return res.status(403).type('text').send('Acesso bloqueado.');
+    if (ban) banidos.delete(ip);
+
+    const varredor = UA_VARREDORES.test(String(req.headers['user-agent'] || ''));
+    if (CAMINHOS_SONDAGEM.test(req.path) || (varredor && req.method !== 'GET')) {
+      const lista = (sondagens.get(ip) || []).filter((t) => Date.now() - t < 10 * MINUTO);
+      lista.push(Date.now());
+      sondagens.set(ip, lista);
+      if (lista.length >= 5) {
+        banidos.set(ip, Date.now() + HORA);
+        auditoria.registrar('ip_banido', req, { detalhe: `varredura automática (${req.path})` });
+      }
+      return res.status(404).type('text').send('Não encontrado.');
+    }
+    next();
+  };
+}
+
+// ------------------------------------------------------------------
+// Lista de IPs permitidos (IPS_PERMITIDOS="200.1.2.3, 177.10.0.0/16")
+// ------------------------------------------------------------------
+function criarListaIps(texto) {
+  const regras = String(texto || '').split(/[\s,;]+/).filter(Boolean).map((r) => {
+    const [ip, bits] = r.split('/');
+    return { ip, bits: bits != null ? Number(bits) : null };
+  });
+  const paraNumero = (ip) => ip.split('.').reduce((n, o) => (n << 8) + Number(o), 0) >>> 0;
+  const permitido = (ipBruto) => {
+    const ip = String(ipBruto || '').replace(/^::ffff:/, '');
+    return regras.some((r) => {
+      if (r.bits == null) return r.ip === ip;
+      if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || !/^\d+\.\d+\.\d+\.\d+$/.test(r.ip)) return false;
+      const mascara = r.bits === 0 ? 0 : (~0 << (32 - r.bits)) >>> 0;
+      return (paraNumero(ip) & mascara) === (paraNumero(r.ip) & mascara);
+    });
+  };
+  return {
+    ativa: regras.length > 0,
+    middleware: (auditoria) => (req, res, next) => {
+      if (!regras.length || permitido(req.ip)) return next();
+      auditoria.registrar('ip_nao_autorizado', req);
+      res.status(403).type('text').send('Acesso não autorizado a partir deste endereço.');
+    }
+  };
+}
+
+// ------------------------------------------------------------------
+// Validação dos parâmetros recebidos pela API (por nome do campo)
+// ------------------------------------------------------------------
+const REGRAS_CAMPOS = {
+  cnpj: (v) => typeof v === 'string' && v.length <= 20 && [0, 11, 14].includes(v.replace(/\D/g, '').length),
+  chNFe: (v) => typeof v === 'string' && /^\D*(\d\D*){44}$/.test(v),
+  chCTe: (v) => typeof v === 'string' && /^\D*(\d\D*){44}$/.test(v),
+  yearMonth: (v) => v == null || v === '' || /^(\d{4}-\d{2}|todos|all|indefinido)$/.test(String(v)),
+  ano: (v) => v == null || v === '' || /^(\d{4}|todos|all)$/.test(String(v)),
+  mes: (v) => v == null || v === '' || /^(0?[1-9]|1[0-2]|todos|all)$/.test(String(v)),
+  dataInicio: (v) => v == null || v === '' || /^\d{4}-\d{2}-\d{2}$/.test(String(v)),
+  dataFim: (v) => v == null || v === '' || /^\d{4}-\d{2}-\d{2}$/.test(String(v)),
+  startDate: (v) => v == null || v === '' || /^\d{4}-\d{2}-\d{2}/.test(String(v)),
+  endDate: (v) => v == null || v === '' || /^\d{4}-\d{2}-\d{2}/.test(String(v)),
+  targetNsu: (v) => v == null || v === '' || /^\d{1,15}$/.test(String(v)),
+  password: (v) => v == null || (typeof v === 'string' && v.length <= 1200),
+  razaoSocial: (v) => v == null || (typeof v === 'string' && v.length <= 300),
+  direcao: (v) => v == null || ['todas', 'emitidas', 'recebidas'].includes(v)
+};
+
+function validarEntradas(valor, profundidade = 0, chave = '') {
+  if (profundidade > 12) throw Object.assign(new Error('Parâmetros com profundidade excessiva.'), { status: 400 });
+  if (chave && REGRAS_CAMPOS[chave] && !REGRAS_CAMPOS[chave](valor)) {
+    throw Object.assign(new Error(`Valor inválido no campo "${chave}".`), { status: 400 });
+  }
+  if (typeof valor === 'string') {
+    if (valor.length < 4096 && valor.includes('\u0000')) throw Object.assign(new Error('Caractere inválido nos parâmetros.'), { status: 400 });
+    return;
+  }
+  if (Array.isArray(valor)) {
+    if (valor.length > 100000) throw Object.assign(new Error('Lista grande demais.'), { status: 400 });
+    valor.forEach((v) => validarEntradas(v, profundidade + 1));
+    return;
+  }
+  if (valor && typeof valor === 'object') {
+    for (const [k, v] of Object.entries(valor)) validarEntradas(v, profundidade + 1, k);
+  }
+}
+
+// Remove senhas em texto aberto de qualquer resposta da API
+function ocultarSegredos(valor, profundidade = 0) {
+  if (profundidade > 12 || valor == null || typeof valor !== 'object') return valor;
+  if (Array.isArray(valor)) return valor.map((v) => ocultarSegredos(v, profundidade + 1));
+  const saida = {};
+  for (const [k, v] of Object.entries(valor)) {
+    saida[k] = /^(password|senha|senhaPfx|passphrase|privateKey|keyPem|privateKeyPem)$/i.test(k) && typeof v === 'string' && !/^enc2?:/.test(v)
+      ? ''
+      : ocultarSegredos(v, profundidade + 1);
+  }
+  return saida;
+}
+
 function avaliarSenha(senha) {
   const s = String(senha || '');
   const tipos = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(s)).length;
@@ -350,5 +499,7 @@ function avaliarSenha(senha) {
 module.exports = {
   hashCsp, compararSeguro, escaparHtml, cabecalhos, forcarHttps, verificarOrigem, CSP_ARQUIVO_HTML,
   criarAuditoria, criarSessoes, criarLimitadorLogin, limitarRequisicoes,
-  criarTotp, gerarSegredoTotp, verificarTotpAvulso, criarGuardaCaminhos, avaliarSenha
+  criarTotp, gerarSegredoTotp, verificarTotpAvulso, criarGuardaCaminhos, avaliarSenha,
+  gerarHashSenha, verificarHashSenha, criarTokenLogin, validarTokenLogin, criarProtecaoBots, criarListaIps,
+  validarEntradas, ocultarSegredos
 };

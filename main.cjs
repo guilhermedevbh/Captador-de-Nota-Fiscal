@@ -6,7 +6,7 @@ const { getStateDatabase } = require('./sefaz/stateDatabase.cjs');
 const { CnpjService } = require('./sefaz/cnpjService.cjs');
 const { rodarCaptacaoNfseEmpresa } = require('./nfse/robotNfse.cjs');
 const { consultarTomadasSP, gerarPdfPadraoSp } = require('./nfse/spService.cjs');
-const { decryptPassword } = require('./nfse/cryptoUtils.cjs');
+const { decryptPassword, encryptPassword } = require('./nfse/cryptoUtils.cjs');
 const {
   scanNotasEmpresa,
   calcularMetricas,
@@ -22,6 +22,13 @@ const qrcode = require('qrcode-generator');
 const rollingLogs = [];
 const MAX_ROLLING_LOGS = 350;
 
+// Remove senhas e segredos de qualquer texto de log
+function ocultarSenhas(texto) {
+  return String(texto)
+    .replace(/("?(?:password|senha|senhaPfx|passphrase|secret|segredo)"?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}]+)/gi, '$1"***"')
+    .replace(/enc2?:[0-9a-f:]{20,}/gi, 'enc:***');
+}
+
 function pushDiagnosticLog(level, args) {
   try {
     const msg = args.map(a => {
@@ -31,7 +38,7 @@ function pushDiagnosticLog(level, args) {
       }
       return String(a);
     }).join(' ');
-    const entry = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${msg}`;
+    const entry = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${ocultarSenhas(msg)}`;
     rollingLogs.push(entry);
     if (rollingLogs.length > MAX_ROLLING_LOGS) {
       rollingLogs.shift();
@@ -751,8 +758,20 @@ ipcMain.handle('sefaz:reset-cte-nsu', async (event, { cnpj, razaoSocial, targetN
 });
 
 // 5.14. Salvar configurações de agendamento por modelo
-ipcMain.handle('settings:save-model-schedulers', async (event, modelSchedulers) => {
+// Campos aceitos de um agendador vindo do navegador (qualquer outro campo é descartado)
+function agendaPermitida(dados) {
+  const d = dados && typeof dados === 'object' ? dados : {};
+  const limpo = {};
+  if ('enabled' in d) limpo.enabled = Boolean(d.enabled);
+  if (typeof d.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(d.time)) limpo.time = d.time;
+  if (d.lastRunDate === null || (typeof d.lastRunDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.lastRunDate))) limpo.lastRunDate = d.lastRunDate;
+  return limpo;
+}
+
+ipcMain.handle('settings:save-model-schedulers', async (event, modelSchedulersRecebido) => {
   try {
+    const modelSchedulers = {};
+    for (const m of ['nfe', 'nfce', 'cte', 'nfse']) modelSchedulers[m] = agendaPermitida(modelSchedulersRecebido && modelSchedulersRecebido[m]);
     const settings = loadSettings();
     const prev = settings.modelSchedulers || {};
     settings.modelSchedulers = {
@@ -1008,8 +1027,9 @@ ipcMain.handle('settings:open-storage-folder', async () => {
   }
 });
 
-ipcMain.handle('settings:save-scheduler', (event, schedulerData) => {
+ipcMain.handle('settings:save-scheduler', (event, schedulerRecebido) => {
   try {
+    const schedulerData = agendaPermitida(schedulerRecebido);
     const settings = loadSettings();
     settings.scheduler = {
       ...settings.scheduler,
@@ -1028,8 +1048,9 @@ ipcMain.handle('settings:save-scheduler', (event, schedulerData) => {
   }
 });
 
-ipcMain.handle('settings:save-nfse-scheduler', (event, nfseSchedulerData) => {
+ipcMain.handle('settings:save-nfse-scheduler', (event, nfseSchedulerRecebido) => {
   try {
+    const nfseSchedulerData = agendaPermitida(nfseSchedulerRecebido);
     const settings = loadSettings();
     settings.nfseScheduler = {
       ...(settings.nfseScheduler || { enabled: false, time: '09:00', lastRunDate: null }),
@@ -1508,6 +1529,12 @@ ipcMain.handle('app:save-csv-file', async (event, { defaultFilename, content, ti
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// 27-seg. Cifra a senha do certificado (AES-256-GCM com a chave mestra do servidor) antes de o
+// navegador guardá-la: o localStorage nunca contém a senha em texto aberto
+ipcMain.handle('seguranca:cifrar-senhas', async (event, senhas) => {
+  return (Array.isArray(senhas) ? senhas : []).slice(0, 500).map((s) => (s ? encryptPassword(String(s).slice(0, 200)) : ''));
 });
 
 // 27a. Relatório Excel completo (.xlsx) no modelo: resumo, notas, itens, tributos, pagamentos,

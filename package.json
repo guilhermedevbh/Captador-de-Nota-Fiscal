@@ -11,7 +11,8 @@
     "dev:server": "node server.cjs",
     "build": "vite build",
     "start": "node server.cjs",
-    "web": "vite build && node server.cjs"
+    "web": "vite build && node server.cjs",
+    "auditoria": "npm audit --omit=dev"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

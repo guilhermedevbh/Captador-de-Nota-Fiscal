@@ -74,6 +74,9 @@ O Vite (porta 5173) encaminha as chamadas `/api` para o servidor (porta 3000).
 | `OPEN_FOLDERS` | `1` | Use `0` para não abrir pastas no explorador do servidor |
 | `APP_USER` | `admin` | Usuário do login |
 | `APP_PASSWORD` | — | Senha do login (obrigatória; sem ela ninguém entra) |
+| `APP_PASSWORD_HASH` | — | Senha do site como hash scrypt (gere em `/seguranca`); substitui `APP_PASSWORD` |
+| `CAPTADOR_CHAVE_MESTRA` | gerada em `DATA_DIR/.chave-mestra` | Chave que cifra senhas de certificado e o estado (16+ caracteres aleatórios) |
+| `IPS_PERMITIDOS` | — | Lista de IPs/faixas liberados, ex.: `200.1.2.3, 177.10.0.0/16` |
 | `APP_TOTP_SECRET` | — | Ativa o 2º fator (código do Google Authenticator/Authy). Gere em `/seguranca` |
 | `SESSAO_HORAS` | `12` | Duração máxima da sessão |
 | `SESSAO_INATIVIDADE_MIN` | `120` | Encerra a sessão após esse tempo sem uso (`0` desativa) |
@@ -95,7 +98,12 @@ Proteções do servidor (`web/seguranca.cjs`), com painel em **/seguranca** (bot
 - **Abuso:** limite de 600 requisições/min por sessão e de tamanho das requisições.
 - **Auditoria:** logins, falhas, bloqueios e acessos negados em `DATA_DIR/logs/acessos.log`.
 
-Recomendações: senha com 14+ caracteres, 2FA ativo e acesso sempre pelo domínio `https://`.
+- **Dados sensíveis:** senhas de certificado cifradas pelo servidor (AES-256-GCM com chave mestra) antes de irem para o navegador; estado das empresas cifrado; nenhum segredo no código.
+- **Robôs:** campo-armadilha e token de tempo no login; varredores (sqlmap, nikto...) e IPs que sondam falhas (`/.env`, `/wp-login.php`...) são banidos por 1 hora.
+- **Entradas e respostas:** CNPJ, chaves, datas e competências validados; agendadores aceitam só campos permitidos; senhas removidas de respostas e logs; erros sem caminhos internos.
+- **Dependências:** Dependabot semanal e verificação automática (`npm audit` + gitleaks) no GitHub; localmente, `npm run auditoria`.
+
+A checklist completa de 20 itens fica em `/seguranca`. Recomendações: `APP_PASSWORD_HASH` no lugar de `APP_PASSWORD`, 2FA ativo, `CAPTADOR_CHAVE_MESTRA` definida e acesso sempre pelo domínio `https://`.
 
 ## Deploy no Railway
 

@@ -3,9 +3,12 @@ const forge = require('node-forge');
 const path = require('path');
 const fs = require('fs');
 
-const SECRET_KEY = process.env.APP_SECRET || 'contai-robo-secret-key-32bytes!!';
+const { obterChaveMestra } = require('../sefaz/chaveMestra.cjs');
+
+// Formato antigo ("enc:", AES-CBC com chave fixa): mantido apenas para leitura de senhas já salvas
+const LEGACY_SECRET_KEY = process.env.APP_SECRET || 'contai-robo-secret-key-32bytes!!';
 const ALGORITHM = 'aes-256-cbc';
-const KEY_BUFFER = crypto.createHash('sha256').update(SECRET_KEY).digest();
+const KEY_BUFFER = crypto.createHash('sha256').update(LEGACY_SECRET_KEY).digest();
 
 /**
  * Retorna o diretório seguro de dados do usuário.
@@ -34,19 +37,19 @@ function obterDiretorioDadosUsuario(customDir) {
 }
 
 /**
- * Criptografa a senha usando AES-256-CBC se ela ainda não estiver criptografada.
- * Retorna no formato "enc:<iv_hex>:<cipher_hex>".
+ * Criptografa a senha com AES-256-GCM e a chave mestra do servidor.
+ * Retorna no formato "enc2:<iv_hex>:<tag_hex>:<cipher_hex>".
  */
 function encryptPassword(text) {
     if (!text) return '';
     if (typeof text !== 'string') text = String(text);
-    if (text.startsWith('enc:')) return text;
+    if (text.startsWith('enc2:')) return text;
+    if (text.startsWith('enc:')) text = decryptPassword(text);
 
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(ALGORITHM, KEY_BUFFER, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return `enc:${iv.toString('hex')}:${encrypted}`;
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', obterChaveMestra(), iv);
+    const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+    return `enc2:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted.toString('hex')}`;
 }
 
 /**
@@ -55,6 +58,17 @@ function encryptPassword(text) {
 function decryptPassword(text) {
     if (!text) return '';
     if (typeof text !== 'string') text = String(text);
+    if (text.startsWith('enc2:')) {
+        try {
+            const [, ivHex, tagHex, dados] = text.split(':');
+            const decipher = crypto.createDecipheriv('aes-256-gcm', obterChaveMestra(), Buffer.from(ivHex, 'hex'));
+            decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+            return Buffer.concat([decipher.update(Buffer.from(dados, 'hex')), decipher.final()]).toString('utf8');
+        } catch (err) {
+            console.error('[Crypto] Senha cifrada com outra chave mestra; cadastre a senha do certificado novamente.');
+            return '';
+        }
+    }
     if (!text.startsWith('enc:')) return text;
 
     try {
