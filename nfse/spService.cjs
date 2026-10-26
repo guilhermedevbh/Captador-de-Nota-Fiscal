@@ -440,6 +440,7 @@ async function consultarTomadasSP(empresa, pastaOutputRaiz, opcoes = {}) {
           const temRetencao = Boolean(vBrutoSp > 0 && (retTotalReais >= 0.01 || (vLiqExplicit > 0 && (vBrutoSp - vLiqExplicit) >= 0.01)));
 
           // Verifica duplicidade global na pasta da empresa (mesmo número + mesmo prestador + mesmo tomador + mesmo valor)
+          const dedupKey = gerarChaveDedupNfse(numeroNFe, prestCnpj, tomaCnpj, vBrutoSp);
           const existingNota = dedupKey ? existingIndex.get(dedupKey) : null;
 
           if (existingNota && fs.existsSync(existingNota.caminhoXml)) {

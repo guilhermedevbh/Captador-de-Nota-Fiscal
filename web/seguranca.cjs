@@ -483,6 +483,9 @@ function validarEntradas(valor, profundidade = 0, chave = '') {
 function ocultarSegredos(valor, profundidade = 0) {
   if (profundidade > 12 || valor == null || typeof valor !== 'object') return valor;
   if (Array.isArray(valor)) return valor.map((v) => ocultarSegredos(v, profundidade + 1));
+  // Só percorre objetos simples: datas, buffers e outras classes seguem intactas para a serialização JSON
+  const proto = Object.getPrototypeOf(valor);
+  if (proto !== Object.prototype && proto !== null) return valor;
   const saida = {};
   for (const [k, v] of Object.entries(valor)) {
     saida[k] = /^(password|senha|senhaPfx|passphrase|privateKey|keyPem|privateKeyPem)$/i.test(k) && typeof v === 'string' && !/^enc2?:/.test(v)

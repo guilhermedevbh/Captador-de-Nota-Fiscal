@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { EmpresaSefaz, RegimeDestinatario, ModelSchedulersMap } from "../types";
 import { EmpresaSearchSelect } from "./EmpresaSearchSelect";
-import { formatDateBr } from "../utils/certUtils";
+import { dataIsoSegura, formatDateBr } from "../utils/certUtils";
 import {
   Building2,
   X,
@@ -452,7 +452,7 @@ export default function UnifiedConfigModal({
             certInfo: {
               subject: res.info.subject,
               issuer: res.info.issuer,
-              validTo: res.info.validTo ? new Date(res.info.validTo).toISOString() : "",
+              validTo: dataIsoSegura(res.info.validTo),
               daysRemaining: res.info.daysRemaining,
               isExpired: res.info.isExpired,
             },
@@ -558,7 +558,7 @@ export default function UnifiedConfigModal({
         ? {
             subject: testingStatus.info.subject,
             issuer: testingStatus.info.issuer,
-            validTo: testingStatus.info.validTo ? new Date(testingStatus.info.validTo).toISOString() : "",
+            validTo: dataIsoSegura(testingStatus.info.validTo),
             daysRemaining: testingStatus.info.daysRemaining,
             isExpired: testingStatus.info.isExpired,
           }
@@ -1572,7 +1572,7 @@ export default function UnifiedConfigModal({
         <div className="bg-[#e4e4e4] border-t border-[#b0b0b0] px-3 py-1.5 flex items-center justify-between select-none">
           <div className="text-[10px] text-[#444444] flex items-center gap-1.5">
             <ShieldCheck size={13} className="text-[#003366]" />
-            <span>Certificados criptografados em nível local via Windows DPAPI/AES. Nenhuma chave trafega para a nuvem.</span>
+            <span>Senhas dos certificados cifradas no servidor (AES-256-GCM) e arquivos .pfx com acesso restrito.</span>
           </div>
           <button
             type="button"

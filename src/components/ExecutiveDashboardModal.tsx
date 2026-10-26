@@ -651,7 +651,7 @@ export default function ExecutiveDashboardModal({
           <div className="flex items-center gap-2 text-[#555555] text-[11px]">
             <span>Captador de Notas Fiscais</span>
             <span>·</span>
-            <span>Ambiente Seguro DPAPI</span>
+            <span>Ambiente Seguro (AES-256)</span>
             <span>·</span>
             <span>Auditoria Contábil Ativa</span>
           </div>

@@ -287,8 +287,8 @@ export default function EmpresasHubView({
           valB = Number(b.cteCount) || 0;
           break;
         case "nfse":
-          valA = Number(a.nfseCount) || 0;
-          valB = Number(b.nfseCount) || 0;
+          valA = Number(a.nfseTotalCount) || 0;
+          valB = Number(b.nfseTotalCount) || 0;
           break;
         case "totalDocs":
           valA = Number(a.totalDocs) || 0;

@@ -1257,8 +1257,8 @@ export default function CaptacaoView({
           valB = (b.cnpjEmitente || "").replace(/\D/g, "");
           break;
         case "rota":
-          valA = (a.ufEmitente || "").toLowerCase();
-          valB = (b.ufEmitente || "").toLowerCase();
+          valA = `${a.ufRem || ""}${a.ufDest || ""}`.toLowerCase();
+          valB = `${b.ufRem || ""}${b.ufDest || ""}`.toLowerCase();
           break;
         case "valorProd":
           valA = Number(a.vProd) || 0;

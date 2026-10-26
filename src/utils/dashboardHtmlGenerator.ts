@@ -703,7 +703,7 @@ export function generateExecutiveDashboardHtml(data: DashboardData): string {
         <span class="badge-periodo">Período: ${periodo}</span>
       </div>
       <div style="font-size: 10px; color: #555555;">
-        Emissão: <strong>${nowFormatted}</strong> · Processamento Local Seguro DPAPI
+        Emissão: <strong>${nowFormatted}</strong> · Processamento Seguro (AES-256)
       </div>
     </div>
 
@@ -981,7 +981,7 @@ export function generateExecutiveDashboardHtml(data: DashboardData): string {
     <!-- Rodapé Clássico do Sistema -->
     <div class="erp-footer">
       <span>Relatório gerado automaticamente por <strong>Captador de Notas Fiscais</strong> em ${nowFormatted}.</span>
-      <span>Processamento Local & Seguro · Fidelidade às bases SEFAZ, ADN e PMSP · Ambiente DPAPI</span>
+      <span>Processamento Local & Seguro · Fidelidade às bases SEFAZ, ADN e PMSP · Ambiente Seguro (AES-256)</span>
     </div>
 
   </div>
