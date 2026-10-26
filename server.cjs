@@ -2,7 +2,8 @@
 // CAPTADOR DE NOTAS FISCAIS - SERVIDOR WEB
 // -------------------------------------------------------------------------
 // Expõe os mesmos handlers do backend (main.cjs) por HTTP:
-//   POST /api/invoke/:channel   -> executa o handler IPC equivalente
+//   POST /api/invoke/:channel   -> executa o handler IPC equivalente (202 + id quando demora)
+//   GET  /api/tarefa/:id        -> acompanha uma chamada que seguiu em segundo plano
 //   GET  /api/events            -> eventos de progresso (Server-Sent Events)
 //   POST /api/upload-cert       -> recebe o certificado A1 (.pfx/.p12) enviado pelo navegador
 //   GET  /api/download/:token   -> baixa arquivos gerados (ZIP, CSV, XML, TXT)
@@ -342,6 +343,15 @@ setInterval(() => {
 // ------------------------------------------------------------------
 // Chamadas IPC
 // ------------------------------------------------------------------
+const ESPERA_RESPOSTA_MS = 20 * 1000;
+const TAREFA_TTL_MS = 10 * 60 * 1000;
+const tarefas = new Map();
+
+setInterval(() => {
+  const agora = Date.now();
+  for (const [id, tarefa] of tarefas) if (tarefa.expira < agora) tarefas.delete(id);
+}, 60 * 1000).unref();
+
 app.post('/api/invoke/:channel', express.json({ limit: '50mb' }), async (req, res) => {
   const channel = req.params.channel;
   const handler = ipcHandlers.get(channel);
@@ -372,6 +382,32 @@ app.post('/api/invoke/:channel', express.json({ limit: '50mb' }), async (req, re
     folders: []
   };
 
+  // Tarefas longas (sincronização, exportações) seguem em segundo plano: o navegador acompanha por
+  // consultas curtas, sem depender de uma única requisição aberta que o proxy do Railway pode derrubar
+  const execucao = executarCanal(channel, handler, args, ctx);
+  const pronto = await Promise.race([execucao, sleep(ESPERA_RESPOSTA_MS).then(() => null)]);
+  if (pronto) return res.status(pronto.status).json(pronto.corpo);
+
+  const id = crypto.randomBytes(16).toString('hex');
+  const tarefa = { sessao: req.sessao.id, execucao, expira: Infinity };
+  tarefas.set(id, tarefa);
+  execucao.then(() => { tarefa.expira = Date.now() + TAREFA_TTL_MS; });
+  res.status(202).json({ tarefa: id });
+});
+
+app.get('/api/tarefa/:id', async (req, res) => {
+  const tarefa = tarefas.get(req.params.id);
+  if (!tarefa || tarefa.sessao !== req.sessao.id) {
+    return res.status(404).json({ error: 'A tarefa foi interrompida porque o servidor reiniciou. Execute novamente (o progresso já salvo é mantido).' });
+  }
+  const pronto = await Promise.race([tarefa.execucao, sleep(ESPERA_RESPOSTA_MS).then(() => null)]);
+  if (!pronto) return res.status(202).json({ tarefa: req.params.id });
+  tarefas.delete(req.params.id);
+  res.status(pronto.status).json(pronto.corpo);
+});
+
+// Executa o handler e monta a resposta; nunca rejeita, para servir tanto à resposta direta quanto à tarefa
+async function executarCanal(channel, handler, args, ctx) {
   try {
     let result = await requestContext.run(ctx, () => handler({ sender: null }, ...args));
 
@@ -399,12 +435,12 @@ app.post('/api/invoke/:channel', express.json({ limit: '50mb' }), async (req, re
         return { url: `/api/file/${token}/${encodeURIComponent(filename)}`, filename };
       });
 
-    res.json({ result: result === undefined ? null : seg.ocultarSegredos(result), downloads, opens, folders: ctx.folders });
+    return { status: 200, corpo: { result: result === undefined ? null : seg.ocultarSegredos(result), downloads, opens, folders: ctx.folders } };
   } catch (err) {
     console.error(`[Servidor] Erro no canal ${channel}:`, err);
-    res.status(500).json({ error: semCaminhosInternos(err?.message || String(err)) });
+    return { status: 500, corpo: { error: semCaminhosInternos(err?.message || String(err)) } };
   }
-});
+}
 
 // ------------------------------------------------------------------
 // Eventos de progresso (substitui webContents.send)
@@ -500,6 +536,10 @@ app.use((err, req, res, next) => {
   console.error('[Servidor] Erro não tratado:', err);
   res.status(500).json({ error: 'Erro interno do servidor.' });
 });
+
+// Uma falha assíncrona esquecida em algum módulo não pode derrubar o servidor no meio de uma captação
+process.on('unhandledRejection', (motivo) => console.error('[Servidor] Promessa rejeitada sem tratamento:', motivo));
+process.on('uncaughtException', (err) => console.error('[Servidor] Exceção não tratada:', err));
 
 app.listen(PORT, HOST, () => {
   const url = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`;

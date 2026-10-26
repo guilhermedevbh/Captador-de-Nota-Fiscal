@@ -59,16 +59,48 @@ function sessaoExpirada(response: Response) {
   return true;
 }
 
+const MSG_SERVIDOR_INDISPONIVEL =
+  "O servidor ficou indisponível por alguns instantes (reiniciando ou atualizando). Aguarde alguns segundos e tente novamente.";
+
+// Lê a resposta como JSON; páginas de erro do proxy (ex.: "upstream error") viram mensagem clara
+async function lerJson(response: Response): Promise<any> {
+  const texto = await response.text();
+  try {
+    return JSON.parse(texto);
+  } catch {
+    throw new Error(response.status >= 500 || !texto ? MSG_SERVIDOR_INDISPONIVEL : `Resposta inesperada do servidor (${response.status}).`);
+  }
+}
+
+// Acompanha uma chamada que seguiu em segundo plano no servidor, tolerando quedas passageiras da conexão
+async function aguardarTarefa(id: string): Promise<{ response: Response; data: any }> {
+  let falhas = 0;
+  for (;;) {
+    try {
+      const response = await fetch(`/api/tarefa/${encodeURIComponent(id)}`);
+      if (sessaoExpirada(response)) throw new Error("Sessão expirada. Faça login novamente.");
+      if (response.status >= 502 && response.status <= 504) throw new Error(MSG_SERVIDOR_INDISPONIVEL);
+      const data = await lerJson(response);
+      falhas = 0;
+      if (response.status !== 202) return { response, data };
+    } catch (err: any) {
+      if (/Sessão expirada/.test(err?.message) || ++falhas > 10) throw err;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
+
 async function invokeChannel(channel: string, args: any[], openPaths?: string[]): Promise<any> {
   const pendingTab = CHANNELS_THAT_OPEN_FILES.has(channel) ? window.open("", "_blank") : null;
   try {
-    const response = await fetch(`/api/invoke/${encodeURIComponent(channel)}`, {
+    let response = await fetch(`/api/invoke/${encodeURIComponent(channel)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ args, openPaths }),
     });
     if (sessaoExpirada(response)) throw new Error("Sessão expirada. Faça login novamente.");
-    const data: InvokeResponse = await response.json();
+    let data: InvokeResponse & { tarefa?: string } = await lerJson(response);
+    if (response.status === 202 && data?.tarefa) ({ response, data } = await aguardarTarefa(data.tarefa));
     if (!response.ok) throw new Error(data?.error || `Falha na comunicação com o servidor (${response.status}).`);
 
     (data.downloads || []).forEach((d) => triggerDownload(d.url, d.filename));
@@ -146,7 +178,7 @@ export const uploadCertFile = async (file: File): Promise<string | null> => {
       body: file,
     });
     if (sessaoExpirada(response)) return null;
-    const data = await response.json();
+    const data = await lerJson(response);
     if (!response.ok) throw new Error(data?.error || "Falha ao enviar o certificado.");
     return data.path as string;
   } catch (err: any) {
