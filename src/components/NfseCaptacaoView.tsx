@@ -748,8 +748,9 @@ export default function NfseCaptacaoView({
           valB = Number(String(b.numeroNFe || b.dpsNumero || "0").replace(/\D/g, "")) || 0;
           break;
         case "dataEmissao":
-          valA = a.dataEmissao || a.competencia || "";
-          valB = b.dataEmissao || b.competencia || "";
+          // dataGeracao vem como DD/MM/AAAA: ordena por AAAAMMDD
+          valA = (a.dataGeracao || "").split("/").reverse().join("") || a.competencia || "";
+          valB = (b.dataGeracao || "").split("/").reverse().join("") || b.competencia || "";
           break;
         case "parceiro": {
           const isPrestA = (a.tipo || "").toLowerCase().includes("prest") || (a.tipo || "").toLowerCase().includes("emit");

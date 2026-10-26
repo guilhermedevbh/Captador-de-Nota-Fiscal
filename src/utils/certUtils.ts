@@ -48,3 +48,11 @@ export function formatDateBr(dateVal: any, fallback = "N/D"): string {
   if (!d) return fallback;
   return d.toLocaleDateString("pt-BR");
 }
+
+/**
+ * Converte qualquer valor de data em ISO; retorna "" se for inválido (nunca lança erro).
+ */
+export function dataIsoSegura(dateVal: any): string {
+  const d = parseFlexibleDate(dateVal);
+  return d ? d.toISOString() : "";
+}

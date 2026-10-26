@@ -3,7 +3,7 @@ import { EmpresaSefaz, RegimeDestinatario } from "../types";
 import { Building2, X, Plus, Trash2, KeyRound, CheckCircle2, AlertTriangle, ShieldCheck, FolderOpen, Search, UploadCloud, FileKey, Layers, ShoppingBag, Landmark, FileText } from "lucide-react";
 import { selectCertFile, uploadCertFile, testCert, listNetworkCerts, NetworkCertItem } from "../utils/electronBridge";
 import CertificateBadge from "./CertificateBadge";
-import { formatDateBr } from "../utils/certUtils";
+import { dataIsoSegura, formatDateBr } from "../utils/certUtils";
 
 interface SefazCompanyModalProps {
   isOpen: boolean;
@@ -97,7 +97,7 @@ export default function SefazCompanyModal({
             certInfo: {
               subject: res.info.subject,
               issuer: res.info.issuer,
-              validTo: res.info.validTo ? new Date(res.info.validTo).toISOString() : "",
+              validTo: dataIsoSegura(res.info.validTo),
               daysRemaining: res.info.daysRemaining,
               isExpired: res.info.isExpired,
             },
@@ -207,7 +207,7 @@ export default function SefazCompanyModal({
       certInfo: testingStatus.info ? {
         subject: testingStatus.info.subject,
         issuer: testingStatus.info.issuer,
-        validTo: testingStatus.info.validTo ? new Date(testingStatus.info.validTo).toISOString() : "",
+        validTo: dataIsoSegura(testingStatus.info.validTo),
         daysRemaining: testingStatus.info.daysRemaining,
         isExpired: testingStatus.info.isExpired
       } : editingCompany.certInfo

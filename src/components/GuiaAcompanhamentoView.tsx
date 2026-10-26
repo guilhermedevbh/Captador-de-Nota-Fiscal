@@ -617,8 +617,8 @@ export default function GuiaAcompanhamentoView({
           valB = (b.parceiroCnpj || "").replace(/\D/g, "");
           break;
         case "papel":
-          valA = (a.papel || "").toLowerCase();
-          valB = (b.papel || "").toLowerCase();
+          valA = (a.papelParceiro || "").toLowerCase();
+          valB = (b.papelParceiro || "").toLowerCase();
           break;
         case "valorBruto":
           valA = Number(a.valorTotal) || 0;

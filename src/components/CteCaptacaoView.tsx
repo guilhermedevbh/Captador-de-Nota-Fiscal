@@ -562,12 +562,12 @@ export default function CteCaptacaoView({
           valB = (b.emitente || "").toLowerCase();
           break;
         case "tomador":
-          valA = (a.tomadorNome || "").toLowerCase();
-          valB = (b.tomadorNome || "").toLowerCase();
+          valA = (a.tomador || "").toLowerCase();
+          valB = (b.tomador || "").toLowerCase();
           break;
         case "rota":
-          valA = ((a.ufIni || "") + (a.ufFim || "")).toLowerCase();
-          valB = ((b.ufIni || "") + (b.ufFim || "")).toLowerCase();
+          valA = ((a.ufRem || a.ufEmit || "") + (a.ufDest || "")).toLowerCase();
+          valB = ((b.ufRem || b.ufEmit || "") + (b.ufDest || "")).toLowerCase();
           break;
         case "valor":
           valA = Number(a.vTPrest) || 0;
