@@ -16,6 +16,11 @@
     <script>
       // Exige login a cada nova aba/janela: sem a marca da sessão atual, encerra e volta ao login
       try {
+        // Login recém-feito chega com #entrou: marca esta aba como autenticada
+        if (location.hash === "#entrou") {
+          sessionStorage.setItem("captador_auth", "1");
+          history.replaceState(null, "", location.pathname + location.search);
+        }
         if (!sessionStorage.getItem("captador_auth")) location.replace("/logout");
       } catch (e) {}
     </script>
