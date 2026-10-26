@@ -25,7 +25,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "fast-xml-parser": "^5.11.1",
-    "lucide-react": "^0.546.0",
+    "lucide-react": "^1.61.0",
     "motion": "^12.23.24",
     "nfe-danfe-pdf": "^1.0.3",
     "node-forge": "^1.4.0",
