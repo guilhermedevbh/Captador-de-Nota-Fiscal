@@ -155,7 +155,7 @@ app.post('/login', express.urlencoded({ extended: false, limit: '10kb' }), async
   limitadorLogin.sucesso(ip);
   sessoes.criar(req, res);
   auditoria.registrar('login_ok', req, { usuario: usuario.slice(0, 60) });
-  res.redirect('/');
+  res.redirect('/#entrou');
 });
 
 app.get('/logout', (req, res) => {
