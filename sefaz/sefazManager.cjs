@@ -303,6 +303,7 @@ class SefazManager {
     state.ultNSU = cleanTarget;
     if (clearManifestations) {
       state.manifestedKeys = {};
+      state.resumosSemCiencia = {};
     }
     if (clearFiles) {
       state.downloadedKeys = {};
@@ -383,6 +384,7 @@ class SefazManager {
       state.ultNSU = cleanTarget;
       if (clearManifestations) {
         state.manifestedKeys = {};
+        state.resumosSemCiencia = {};
       }
       limparRepouso(state);
       storage.saveState(state);
@@ -396,7 +398,7 @@ class SefazManager {
 
     // A pausa curta entre tentativas pode ser forçada; o repouso de 1h após o limite de tentativas, não
     const pularNsu = isBlocked && (!forceSync || state.repousoLongo);
-    if (pularNsu && this.listarNfePendentes(state).length === 0) {
+    if (pularNsu && this.listarNfePendentes(state).length === 0 && this.listarResumosSemCiencia(state).length === 0) {
       const reason = state.repousoLongo
         ? `Limite de ${LIMITE_TENTATIVAS} tentativas atingido${state.lastCStat === '656' ? ' (SEFAZ: Consumo Indevido - Rejeição 656)' : ''}`
         : state.lastCStat === '656'
@@ -444,6 +446,43 @@ class SefazManager {
     let tentativasInstavel = 0;
     let totalBaixadas = 0;
     let totalManifestadas = 0;
+
+    // Ciência da Operação para liberar o XML completo. Se falhar (SEFAZ instável, tempo esgotado), o resumo fica
+    // guardado para nova tentativa nas próximas sincronizações: o NSU já avançou e a SEFAZ não o envia de novo
+    const manifestarResumo = async (ch, info) => {
+      if (onProgress) onProgress({ status: 'info', message: `Manifestando Ciência: ${info.emitente} (R$ ${info.vNF})...` });
+      let erro;
+      try {
+        let retManif = await manifestacao.darCiencia(ch);
+        // Se a nota tiver mais de 10 dias, a SEFAZ rejeita Ciência (596). O prazo da Confirmação é de 180 dias!
+        if (!retManif.success && retManif.cStatEvento === '596') {
+          if (onProgress) onProgress({ status: 'info', message: `Prazo >10 dias: confirmando operação de ${info.emitente}...` });
+          retManif = await manifestacao.confirmarOperacao(ch);
+        }
+        if (retManif.success) {
+          state.manifestedKeys = state.manifestedKeys || {};
+          state.manifestedKeys[ch] = { date: new Date().toISOString(), status: retManif.cStatEvento, nProt: retManif.nProt };
+          if (state.resumosSemCiencia) delete state.resumosSemCiencia[ch];
+          totalManifestadas++;
+          await sleep(600); // Pausa suave entre manifestações de eventos
+          return;
+        }
+        erro = explicarCStat(retManif.cStatEvento, retManif.xMotivo);
+      } catch (errManif) {
+        erro = errManif.message;
+      }
+      state.resumosSemCiencia = state.resumosSemCiencia || {};
+      const anterior = state.resumosSemCiencia[ch] || {};
+      state.resumosSemCiencia[ch] = { ...info, desde: anterior.desde || new Date().toISOString(), tentativas: (anterior.tentativas || 0) + 1, ultimoErro: erro };
+      if (onProgress) onProgress({ status: 'info', message: `Não foi possível manifestar a nota de ${info.emitente} (${erro}). Nova tentativa na próxima sincronização.` });
+    };
+
+    const resumosSemCiencia = this.listarResumosSemCiencia(state);
+    if (resumosSemCiencia.length > 0) {
+      if (onProgress) onProgress({ status: 'info', message: `Repetindo a Ciência de ${resumosSemCiencia.length} nota(s) que falharam em sincronizações anteriores...` });
+      for (const ch of resumosSemCiencia) await manifestarResumo(ch, state.resumosSemCiencia[ch]);
+      storage.saveState(state);
+    }
 
     const salvarProcNFe = async (parsed, xmlContent) => {
       const saveRes = storage.saveFullXml(parsed.chNFe, xmlContent, {
@@ -540,39 +579,7 @@ class SefazManager {
           if (parsed.type === 'resNFe') {
             const alreadyManifested = state.manifestedKeys && state.manifestedKeys[parsed.chNFe];
             if (!alreadyManifested) {
-              if (onProgress) {
-                onProgress({
-                  status: 'info',
-                  message: `Manifestando Ciência: ${parsed.xNomeEmitente} (R$ ${parsed.vNF})...`
-                });
-              }
-
-              try {
-                let retManif = await manifestacao.darCiencia(parsed.chNFe);
-                // Se a nota tiver mais de 10 dias, a SEFAZ rejeita Ciência (596). O prazo da Confirmação é de 180 dias!
-                if (!retManif.success && retManif.cStatEvento === '596') {
-                  if (onProgress) {
-                    onProgress({
-                      status: 'info',
-                      message: `Prazo >10 dias: confirmando operação de ${parsed.xNomeEmitente}...`
-                    });
-                  }
-                  retManif = await manifestacao.confirmarOperacao(parsed.chNFe);
-                }
-
-                if (retManif.success) {
-                  state.manifestedKeys = state.manifestedKeys || {};
-                  state.manifestedKeys[parsed.chNFe] = {
-                    date: new Date().toISOString(),
-                    status: retManif.cStatEvento,
-                    nProt: retManif.nProt
-                  };
-                  totalManifestadas++;
-                  await sleep(600); // Pausa suave entre manifestações de eventos
-                }
-              } catch (errManif) {
-                console.warn('Erro ao manifestar:', errManif.message);
-              }
+              await manifestarResumo(parsed.chNFe, { emitente: parsed.xNomeEmitente, vNF: parsed.vNF, dhEmi: parsed.dhEmi });
             }
           } else if (parsed.type === 'procNFe') {
             await salvarProcNFe(parsed, xmlContent);
@@ -683,6 +690,16 @@ class SefazManager {
     return Object.entries(state.manifestedKeys || {})
       .filter(([ch, m]) => !baixadas[ch] && !antesDoCorte({ chave: ch }) && (m.tentativasXml || 0) < 5 && new Date(m.date || 0).getTime() > limite)
       .sort((a, b) => String(b[1].date || '').localeCompare(String(a[1].date || '')))
+      .slice(0, 20)
+      .map(([ch]) => ch);
+  }
+
+  // Resumos (resNFe) cuja Ciência falhou: novas tentativas por até 10 sincronizações dentro do prazo de 180 dias
+  listarResumosSemCiencia(state) {
+    const limite = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    return Object.entries(state.resumosSemCiencia || {})
+      .filter(([ch, r]) => !(state.manifestedKeys || {})[ch] && !(state.downloadedKeys || {})[ch] && !antesDoCorte({ chave: ch, data: r.dhEmi }) &&
+        (r.tentativas || 0) < 10 && new Date(r.desde || 0).getTime() > limite)
       .slice(0, 20)
       .map(([ch]) => ch);
   }
