@@ -1378,6 +1378,18 @@ export default function GuiaAcompanhamentoView({
                   <option value="12">12 - Dez</option>
                 </select>
               </div>
+              {(() => {
+                // A distribuição de NF-e da SEFAZ guarda só os últimos 90 dias
+                if (selectedAno === "todos" || selectedMes === "todos") return null;
+                const inicioJanela = new Date();
+                inicioJanela.setDate(inicioJanela.getDate() - 90);
+                if (new Date(Number(selectedAno), Number(selectedMes), 0, 23, 59, 59) >= inicioJanela) return null;
+                return (
+                  <span className="text-[10px] font-semibold text-[#8a5a00]" title="A SEFAZ não entrega NF-e com mais de 90 dias para nenhum sistema">
+                    NF-e deste mês não está mais disponível na SEFAZ (só os últimos 90 dias, desde {inicioJanela.toLocaleDateString("pt-BR")})
+                  </span>
+                );
+              })()}
             </div>
 
             <div className="flex items-center gap-2">

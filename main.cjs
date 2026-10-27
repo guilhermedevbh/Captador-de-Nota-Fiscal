@@ -347,6 +347,7 @@ ipcMain.handle('sefaz:sync-company', async (event, payload) => {
     const clearManifestations = !!payload.clearManifestations;
     const targetNsu = payload.targetNsu || '0';
     const forceSync = !!payload.forceSync;
+    const varreduraCompleta = !!payload.varreduraCompleta;
 
     const result = await sefazManager.syncCompany({
       company,
@@ -354,6 +355,7 @@ ipcMain.handle('sefaz:sync-company', async (event, payload) => {
       clearManifestations,
       targetNsu,
       forceSync,
+      varreduraCompleta,
       onProgress: (info) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('sefaz:sync-progress', {
