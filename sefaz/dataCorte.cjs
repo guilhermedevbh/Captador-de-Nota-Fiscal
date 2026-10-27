@@ -1,8 +1,8 @@
-// Data mínima de emissão para captação de documentos (padrão: 01/01/2026).
+// Data mínima de emissão para captação de documentos (padrão: 01/09/2026).
 // Pode ser alterada pela variável de ambiente CAPTACAO_DATA_INICIAL (AAAA-MM-DD).
 const DATA_INICIAL_CAPTACAO = /^\d{4}-\d{2}-\d{2}$/.test(process.env.CAPTACAO_DATA_INICIAL || '')
   ? process.env.CAPTACAO_DATA_INICIAL
-  : '2026-01-01';
+  : '2026-09-01';
 
 // Retorna true quando o documento foi emitido antes da data de corte.
 // Usa a data de emissão (AAAA-MM-DD...) e, na falta dela, o AAMM da chave de acesso de 44 dígitos.

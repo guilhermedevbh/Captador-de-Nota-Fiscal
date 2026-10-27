@@ -433,6 +433,8 @@ export interface AppSettings {
     time: string;
     lastRunDate?: string | null;
   };
+  // Data mínima de emissão captada (AAAA-MM-DD), definida no servidor
+  dataInicialCaptacao?: string;
 }
 
 export const getAppSettings = async (): Promise<AppSettings | null> => {

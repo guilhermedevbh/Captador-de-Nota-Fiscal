@@ -48,7 +48,8 @@ import {
   saveCsvFile,
   saveHtmlDashboard,
   openCompanyFolder,
-  exportarExcelCompleto
+  exportarExcelCompleto,
+  getAppSettings
 } from "../utils/electronBridge";
 import { formatBRL, normalizeCompetencia, parseDateToTimestamp } from "../utils/calc";
 import CertificateBadge from "./CertificateBadge";
@@ -79,6 +80,11 @@ export default function GuiaAcompanhamentoView({
   // Filtros
   const [selectedAno, setSelectedAno] = useState<string>("todos");
   const [selectedMes, setSelectedMes] = useState<string>("todos");
+  const [dataInicialCaptacao, setDataInicialCaptacao] = useState<string>("");
+
+  useEffect(() => {
+    getAppSettings().then((st) => setDataInicialCaptacao(st?.dataInicialCaptacao || "")).catch(() => {});
+  }, []);
   const [activeTabFilter, setActiveTabFilter] = useState<
     "todas" | "nfe" | "nfce" | "cte" | "nfse_tomadas" | "nfse_prestadas"
   >("todas");
@@ -1381,9 +1387,17 @@ export default function GuiaAcompanhamentoView({
               {(() => {
                 // A distribuição de NF-e da SEFAZ guarda só os últimos 90 dias
                 if (selectedAno === "todos" || selectedMes === "todos") return null;
+                const fimMes = new Date(Number(selectedAno), Number(selectedMes), 0, 23, 59, 59);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dataInicialCaptacao) && fimMes < new Date(`${dataInicialCaptacao}T00:00:00`)) {
+                  return (
+                    <span className="text-[10px] font-semibold text-[#8a5a00]">
+                      Mês fora da captação (notas a partir de {dataInicialCaptacao.split("-").reverse().join("/")})
+                    </span>
+                  );
+                }
                 const inicioJanela = new Date();
                 inicioJanela.setDate(inicioJanela.getDate() - 90);
-                if (new Date(Number(selectedAno), Number(selectedMes), 0, 23, 59, 59) >= inicioJanela) return null;
+                if (fimMes >= inicioJanela) return null;
                 return (
                   <span className="text-[10px] font-semibold text-[#8a5a00]" title="A SEFAZ não entrega NF-e com mais de 90 dias para nenhum sistema">
                     NF-e deste mês não está mais disponível na SEFAZ (só os últimos 90 dias, desde {inicioJanela.toLocaleDateString("pt-BR")})
