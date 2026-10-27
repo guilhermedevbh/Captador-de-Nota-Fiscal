@@ -40,6 +40,33 @@ function registrarTentativaSemNovidade(state, cStat) {
     : `Tentativa ${state.tentativas} de ${LIMITE_TENTATIVAS}. Nova consulta liberada em 2 min.`;
 }
 
+// Uma consulta por empresa e modelo de cada vez, para não consultar a SEFAZ em paralelo (Rejeição 656).
+// A mesma operação pedida de novo (duas abas, agendador, sincronização geral) acompanha a que já está na fila;
+// operações diferentes (ex.: busca por chave durante a sincronização) esperam a vez.
+const filasConsulta = new Map();
+const operacoesEmCurso = new Map();
+
+function umaPorVez(fila, operacao, onProgress, executar) {
+  const chave = `${fila}|${operacao}`;
+  const existente = operacoesEmCurso.get(chave);
+  if (existente) {
+    if (onProgress) onProgress({ status: 'info', message: 'Já existe uma consulta desta empresa em andamento. Acompanhando o resultado...' });
+    return existente;
+  }
+  const anterior = filasConsulta.get(fila);
+  if (anterior && onProgress) onProgress({ status: 'info', message: 'Aguardando a consulta em andamento desta empresa terminar...' });
+  const execucao = (anterior || Promise.resolve()).then(executar).finally(() => {
+    operacoesEmCurso.delete(chave);
+    if (filasConsulta.get(fila) === encadeada) filasConsulta.delete(fila);
+  });
+  const encadeada = execucao.catch(() => {});
+  operacoesEmCurso.set(chave, execucao);
+  filasConsulta.set(fila, encadeada);
+  return execucao;
+}
+
+const cnpjDe = (company) => String((company && company.cnpj) || '').replace(/\D/g, '');
+
 function limparRepouso(state) {
   delete state.blockedUntil;
   delete state.lastCStat;
@@ -338,7 +365,11 @@ class SefazManager {
     };
   }
 
-  async syncCompany({ company, onProgress, resetNsu = false, clearManifestations = false, targetNsu = '0', forceSync = false, skipDanfeGeneration = false }) {
+  syncCompany(opcoes) {
+    return umaPorVez(`nfe:${cnpjDe(opcoes.company)}`, 'sync', opcoes.onProgress, () => this.executarSyncCompany(opcoes));
+  }
+
+  async executarSyncCompany({ company, onProgress, resetNsu = false, clearManifestations = false, targetNsu = '0', forceSync = false, skipDanfeGeneration = false }) {
     const cleanCnpj = String(company.cnpj || '').replace(/\D/g, '');
     const ufUpper = (company.uf || 'SP').toUpperCase();
     const cUFAutor = UF_TO_IBGE[ufUpper] || '35';
@@ -875,7 +906,11 @@ class SefazManager {
     return xmlList;
   }
 
-  async syncCompanyNfce({ company, diasRetroativos = 90, forceFullScan = false, onProgress }) {
+  syncCompanyNfce(opcoes) {
+    return umaPorVez(`nfce:${cnpjDe(opcoes.company)}`, 'sync', opcoes.onProgress, () => this.executarSyncCompanyNfce(opcoes));
+  }
+
+  async executarSyncCompanyNfce({ company, diasRetroativos = 90, forceFullScan = false, onProgress }) {
     const cleanCnpj = String(company.cnpj || '').replace(/\D/g, '');
     const ambiente = Number(company.ambiente) || 1;
     const companyDir = this.getCompanyDir(cleanCnpj, company.razaoSocial);
@@ -1543,7 +1578,13 @@ class SefazManager {
     return { success: true, targetFilePath };
   }
 
-  async fetchSingleByChave({ company, chNFe, onProgress }) {
+  // A busca por chave usa o mesmo serviço de distribuição da NF-e, então entra na mesma fila da empresa
+  fetchSingleByChave(opcoes) {
+    const chave = String(opcoes.chNFe || '').replace(/\D/g, '');
+    return umaPorVez(`nfe:${cnpjDe(opcoes.company)}`, `chave:${chave}`, opcoes.onProgress, () => this.executarFetchSingleByChave(opcoes));
+  }
+
+  async executarFetchSingleByChave({ company, chNFe, onProgress }) {
     const cleanCnpj = String(company.cnpj || '').replace(/\D/g, '');
     const cleanKey = String(chNFe || '').replace(/\D/g, '');
 
@@ -2501,7 +2542,11 @@ class SefazManager {
     };
   }
 
-  async syncCompanyCte({ company, onProgress }) {
+  syncCompanyCte(opcoes) {
+    return umaPorVez(`cte:${cnpjDe(opcoes.company)}`, 'sync', opcoes.onProgress, () => this.executarSyncCompanyCte(opcoes));
+  }
+
+  async executarSyncCompanyCte({ company, onProgress }) {
     const cleanCnpj = String(company.cnpj || '').replace(/\D/g, '');
     const companyDir = this.getCompanyDir(cleanCnpj, company.razaoSocial);
     if (!fs.existsSync(companyDir)) fs.mkdirSync(companyDir, { recursive: true });
