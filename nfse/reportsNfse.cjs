@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { lerComCache } = require('../sefaz/cacheLeitura.cjs');
 const { DOMParser } = require('@xmldom/xmldom');
 const AdmZip = require('adm-zip');
 const { obterDetalhesServicoSP } = require('./danfseSP.cjs');
@@ -570,8 +571,7 @@ function scanNotasEmpresa(pastaOutput, razaoSocial, cnpj, ano, mes, tipoFiltro =
                 const relPath = path.relative(pastaEmpresa, caminhoCompleto).replace(/\\/g, '/');
 
                 try {
-                    const xmlContent = fs.readFileSync(caminhoCompleto, 'utf-8');
-                    const parsed = parseXmlNota(xmlContent, item);
+                    const parsed = lerComCache('nfse', caminhoCompleto, () => parseXmlNota(fs.readFileSync(caminhoCompleto, 'utf-8'), item), stat);
                     if (parsed) {
                         // Extração rigorosa da competência contábil (MM/AAAA)
                         let compAno = '';
@@ -641,7 +641,7 @@ function scanNotasEmpresa(pastaOutput, razaoSocial, cnpj, ano, mes, tipoFiltro =
                             const matchesEmit = cleanEmit && cleanEmit.slice(0, 8) === rootOwner;
                             const matchesToma = cleanToma && cleanToma.slice(0, 8) === rootOwner;
                             // Se ambos prestador e tomador estão preenchidos e nenhum pertence à empresa (nem consta no XML), ignora
-                            if (cleanEmit && cleanToma && !matchesEmit && !matchesToma && !xmlContent.includes(rootOwner)) {
+                            if (cleanEmit && cleanToma && !matchesEmit && !matchesToma && !fs.readFileSync(caminhoCompleto, 'utf-8').includes(rootOwner)) {
                                 continue;
                             }
                         }
@@ -779,8 +779,7 @@ function indexarNotasExistentes(pastaEmpresa, cleanOwnerCnpj = '') {
             } else if (entry.name.toLowerCase().endsWith('.xml')) {
                 if (entry.name.toUpperCase().includes('EVENTO')) continue;
                 try {
-                    const xmlContent = fs.readFileSync(full, 'utf-8');
-                    const parsed = parseXmlNota(xmlContent, entry.name);
+                    const parsed = lerComCache('nfse', full, () => parseXmlNota(fs.readFileSync(full, 'utf-8'), entry.name));
                     if (!parsed) continue;
                     const key = gerarChaveDedupNfse({
                         numeroNFe: parsed.numeroNFe,

@@ -174,14 +174,15 @@ export default function GuiaAcompanhamentoView({
     try {
       const itens: NotaAcompanhamentoItem[] = [];
 
+      // As quatro listagens são pedidas ao servidor ao mesmo tempo e consolidadas na ordem abaixo
+      const mesAlvo = (selectedAno !== "todos" && selectedMes !== "todos") ? `${selectedAno}-${selectedMes}` : "all";
+      const nfseP = listNfseNotas(targetCnpj, targetRazao, selectedAno, selectedMes, "todos");
+      const nfeP = listCompanyXmls(targetCnpj, mesAlvo, targetRazao, true).catch(() => []);
+      const nfceP = listCompanyNfceXmls(targetCnpj, targetRazao, mesAlvo).catch(() => ({ success: false } as any));
+      const cteP = listCompanyCteXmls(targetCnpj, targetRazao, mesAlvo).catch(() => ({ success: false } as any));
+
       // 1. CARREGA NFS-e (Serviços Tomados e Prestados)
-      const nfseRes = await listNfseNotas(
-        targetCnpj,
-        targetRazao,
-        selectedAno,
-        selectedMes,
-        "todos"
-      );
+      const nfseRes = await nfseP;
       if (activeEmpresaCnpjRef.current !== targetCnpj || loadRequestIdRef.current !== reqId) return;
 
       if (nfseRes.success && nfseRes.notas) {
@@ -259,10 +260,7 @@ export default function GuiaAcompanhamentoView({
 
       // 2. CARREGA NF-e (Mercadorias - Entradas Modelo 55)
       try {
-        const nfeTargetMonth = (selectedAno !== "todos" && selectedMes !== "todos")
-          ? `${selectedAno}-${selectedMes}`
-          : "all";
-        const nfeList = await listCompanyXmls(targetCnpj, nfeTargetMonth, targetRazao);
+        const nfeList = await nfeP;
         if (activeEmpresaCnpjRef.current !== targetCnpj || loadRequestIdRef.current !== reqId) return;
 
         if (nfeList && nfeList.length > 0) {
@@ -280,9 +278,9 @@ export default function GuiaAcompanhamentoView({
             }
             const vNF = Number(nfe.vNF) || 0;
             const ufEmit = nfe.ufRem || "";
-            const isInterestadual = Boolean(
-              nfe.isInterestadual ?? (ufEmit && targetUf && ufEmit.toUpperCase() !== targetUf.toUpperCase())
-            );
+            const rotaPelaUf = Boolean(ufEmit && targetUf && ufEmit.toUpperCase() !== targetUf.toUpperCase());
+            // Nota só com resumo (XML completo ainda não liberado): a rota sai da UF do emitente na chave
+            const isInterestadual = nfe.pendente ? rotaPelaUf : Boolean(nfe.isInterestadual ?? rotaPelaUf);
             const difalEst = isInterestadual ? vNF * 0.06 : 0;
             const dateOnly = nfe.dhEmi
               ? nfe.dhEmi.substring(0, 10).split("-").reverse().join("/")
@@ -291,7 +289,7 @@ export default function GuiaAcompanhamentoView({
             itens.push({
               id: `nfe_${nfe.chNFe}_${nfe.nNF}`,
               origem: "NFE",
-              tipoBadge: "NF-e Mercadoria",
+              tipoBadge: nfe.pendente ? "NF-e (aguardando XML)" : "NF-e Mercadoria",
               numero: nfe.nNF || "S/N",
               serie: nfe.serie || "1",
               dataEmissao: dateOnly,
@@ -301,13 +299,16 @@ export default function GuiaAcompanhamentoView({
               papelParceiro: "Fornecedor",
               valorTotal: vNF,
               valorTributoRecolher: difalEst,
-              detalheTributario: isInterestadual ? `Interestadual (${ufEmit} ➔ ${targetUf})` : "Operação Interna",
+              detalheTributario: nfe.pendente
+                ? `Aguardando XML completo da SEFAZ${isInterestadual ? ` - Interestadual (${ufEmit} ➔ ${targetUf})` : ""}`
+                : isInterestadual ? `Interestadual (${ufEmit} ➔ ${targetUf})` : "Operação Interna",
               temAlertaTributario: isInterestadual,
               status: "Normal",
               isCancelada: false,
               chaveAcesso: nfe.chNFe || "",
               caminhoXml: nfe.fullPath,
               caminhoPdf: null,
+              pendente: !!nfe.pendente,
             });
           });
         }
@@ -315,10 +316,7 @@ export default function GuiaAcompanhamentoView({
 
       // 3. CARREGA NFC-e (Mercadorias - Vendas / Saídas Modelo 65)
       try {
-        const nfceTargetMonth = (selectedAno !== "todos" && selectedMes !== "todos")
-          ? `${selectedAno}-${selectedMes}`
-          : "all";
-        const nfceRes = await listCompanyNfceXmls(activeEmpresa.cnpj, activeEmpresa.razaoSocial, nfceTargetMonth);
+        const nfceRes = await nfceP;
 
         if (nfceRes.success && nfceRes.list) {
           nfceRes.list.forEach((n) => {
@@ -374,10 +372,7 @@ export default function GuiaAcompanhamentoView({
 
       // 4. CARREGA CT-e (Transportes - Fretes Modelo 57)
       try {
-        const cteTargetMonth = (selectedAno !== "todos" && selectedMes !== "todos")
-          ? `${selectedAno}-${selectedMes}`
-          : "all";
-        const cteRes = await listCompanyCteXmls(activeEmpresa.cnpj, activeEmpresa.razaoSocial, cteTargetMonth);
+        const cteRes = await cteP;
 
         if (cteRes.success && cteRes.list) {
           cteRes.list.forEach((c) => {
@@ -659,8 +654,13 @@ export default function GuiaAcompanhamentoView({
   }, [itensPaginados, selectedItemId]);
 
   // Abertura de DANFE / DACTE / DANFSe em PDF
+  const avisarPendente = (item: NotaAcompanhamentoItem) => {
+    onNotify(`NF-e ${item.numero}: XML completo ainda não liberado pela SEFAZ. Ela será baixada automaticamente nas próximas sincronizações.`, "error");
+  };
+
   const handleAbrirPdf = async (item: NotaAcompanhamentoItem) => {
     if (!activeEmpresa) return;
+    if (item.pendente) return avisarPendente(item);
 
     if (item.origem === "NFE") {
       const res = await openDanfePdf(activeEmpresa.cnpj, item.chaveAcesso, item.competencia, activeEmpresa.razaoSocial);
@@ -688,6 +688,7 @@ export default function GuiaAcompanhamentoView({
   // Salvar XML individual da nota
   const handleSalvarXml = async (item: NotaAcompanhamentoItem) => {
     if (!activeEmpresa) return;
+    if (item.pendente) return avisarPendente(item);
 
     try {
       if (item.origem === "NFE") {

@@ -353,6 +353,8 @@ export interface NotaAcompanhamentoItem {
   chaveAcesso: string;
   caminhoXml: string;
   caminhoPdf?: string | null;
+  // NF-e informada pela SEFAZ só com o resumo: o XML completo chega nas próximas sincronizações
+  pendente?: boolean;
 }
 
 export interface ParsedNfce {
