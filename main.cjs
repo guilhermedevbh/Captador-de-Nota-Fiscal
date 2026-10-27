@@ -404,9 +404,9 @@ ipcMain.handle('sefaz:list-months', async (event, { cnpj, razaoSocial }) => {
 });
 
 // 5. Ler e carregar XMLs para o cálculo do DIFAL
-ipcMain.handle('sefaz:list-xmls', async (event, { cnpj, razaoSocial, yearMonth }) => {
+ipcMain.handle('sefaz:list-xmls', async (event, { cnpj, razaoSocial, yearMonth, incluirResumos }) => {
   try {
-    const xmls = sefazManager.listCompanyXmls({ cnpj, razaoSocial, yearMonth });
+    const xmls = sefazManager.listCompanyXmls({ cnpj, razaoSocial, yearMonth, incluirResumos: !!incluirResumos });
     return { success: true, xmls };
   } catch (err) {
     return { success: false, error: err.message, xmls: [] };

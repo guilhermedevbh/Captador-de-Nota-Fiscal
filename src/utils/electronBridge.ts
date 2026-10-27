@@ -289,11 +289,12 @@ export interface CapturedNfeMetadata {
 export const listCompanyXmls = async (
   cnpj: string,
   yearMonth?: string,
-  razaoSocial?: string
+  razaoSocial?: string,
+  incluirResumos = false
 ): Promise<CapturedNfeMetadata[]> => {
   const ipc = getIpc();
   if (!ipc) return [];
-  const res = await ipc.invoke("sefaz:list-xmls", { cnpj, yearMonth, razaoSocial });
+  const res = await ipc.invoke("sefaz:list-xmls", { cnpj, yearMonth, razaoSocial, incluirResumos });
   return res.success ? res.xmls : [];
 };
 

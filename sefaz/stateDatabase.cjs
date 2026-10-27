@@ -11,7 +11,10 @@ const SALT = 'cont_ai_salt_appdata_sqlite_v1';
 
 class StateDatabase {
   constructor(userDataDir) {
-    this.userDataDir = userDataDir || process.env.APPDATA || path.join(process.env.USERPROFILE || '.', '.cont_ai');
+    // O banco fica na pasta de dados do servidor (DATA_DIR, o volume persistente no Railway). Antes ficava em
+    // ./.cont_ai, fora do volume, e o controle de NSU, manifestações e notas baixadas se perdia a cada deploy
+    const pastaLegada = path.join(process.env.USERPROFILE || '.', '.cont_ai');
+    this.userDataDir = userDataDir || process.env.DATA_DIR || process.env.APPDATA || pastaLegada;
     if (!fs.existsSync(this.userDataDir)) {
       try {
         fs.mkdirSync(this.userDataDir, { recursive: true });
@@ -19,6 +22,12 @@ class StateDatabase {
     }
 
     this.dbPath = path.join(this.userDataDir, 'contai_state.sqlite');
+    const dbLegado = path.join(pastaLegada, 'contai_state.sqlite');
+    if (!fs.existsSync(this.dbPath) && path.resolve(dbLegado) !== path.resolve(this.dbPath) && fs.existsSync(dbLegado)) {
+      for (const sufixo of ['', '-wal', '-shm']) {
+        try { if (fs.existsSync(dbLegado + sufixo)) fs.copyFileSync(dbLegado + sufixo, this.dbPath + sufixo); } catch (_) {}
+      }
+    }
     this.key = crypto.scryptSync(obterChaveMestra(), SALT, 32);
     this.legacyKey = crypto.scryptSync(SECRET_SEED, SALT, 32);
     this.migratedCnpjs = new Set();
