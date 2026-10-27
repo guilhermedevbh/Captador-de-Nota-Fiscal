@@ -22,6 +22,7 @@ const SEFAZ_INSTAVEL = new Set(['108', '109', '999']);
 // e ao atingir o limite dentro de 1 hora entra o repouso longo exigido pela NT 2014.002
 const LIMITE_TENTATIVAS = 3;
 const PAUSA_CURTA_MS = 2 * 60 * 1000;
+const VARREDURA_INTERVALO_MS = 6 * 60 * 60 * 1000;
 const REPOUSO_MS = 60 * 60 * 1000;
 
 function registrarTentativaSemNovidade(state, cStat) {
@@ -374,7 +375,7 @@ class SefazManager {
     return umaPorVez(`nfe:${cnpjDe(opcoes.company)}`, 'sync', opcoes.onProgress, () => this.executarSyncCompany(opcoes));
   }
 
-  async executarSyncCompany({ company, onProgress, resetNsu = false, clearManifestations = false, targetNsu = '0', forceSync = false, skipDanfeGeneration = false }) {
+  async executarSyncCompany({ company, onProgress, resetNsu = false, clearManifestations = false, targetNsu = '0', forceSync = false, skipDanfeGeneration = false, varreduraCompleta = false }) {
     const cleanCnpj = String(company.cnpj || '').replace(/\D/g, '');
     const ufUpper = (company.uf || 'SP').toUpperCase();
     const cUFAutor = UF_TO_IBGE[ufUpper] || '35';
@@ -446,6 +447,18 @@ class SefazManager {
     });
 
     let continuar = !pularNsu;
+
+    // Busca de um mês: a SEFAZ não filtra por data, então a fila dos últimos 90 dias é relida do início
+    // (no máximo uma vez a cada 6 horas) para garantir que nenhuma nota do mês ficou para trás
+    const ultimaVarredura = state.ultimaVarreduraCompleta ? new Date(state.ultimaVarreduraCompleta).getTime() : 0;
+    const varrendo = continuar && varreduraCompleta && !resetNsu && Date.now() - ultimaVarredura > VARREDURA_INTERVALO_MS;
+    if (varrendo) {
+      state.ultNSU = '0';
+      if (onProgress) onProgress({ status: 'info', message: 'Varredura completa da SEFAZ (últimos 90 dias) para localizar todas as notas do mês...' });
+    }
+    const concluirVarredura = () => {
+      if (varrendo || resetNsu) state.ultimaVarreduraCompleta = new Date().toISOString();
+    };
     let nsuReiniciado = false;
     let tentativasInstavel = 0;
     let totalBaixadas = 0;
@@ -489,6 +502,9 @@ class SefazManager {
     }
 
     const salvarProcNFe = async (parsed, xmlContent) => {
+      // Já baixada e ainda no disco (ex.: releitura da fila na busca por mês): nada a regravar
+      const existente = state.downloadedKeys && state.downloadedKeys[parsed.chNFe];
+      if (existente && existente.filePath && fs.existsSync(existente.filePath)) return;
       const saveRes = storage.saveFullXml(parsed.chNFe, xmlContent, {
         dhEmi: parsed.dhEmi,
         ufEmit: parsed.ufEmit,
@@ -529,6 +545,7 @@ class SefazManager {
       if (response.cStat === '137') {
         state.maxNSU = response.maxNSU || state.maxNSU;
         const avisoTentativa = registrarTentativaSemNovidade(state, '137');
+        concluirVarredura();
         storage.saveState(state);
         if (onProgress) {
           const semDocumentos = String(state.ultNSU).replace(/^0+/, '') === '' && String(response.maxNSU || '0').replace(/^0+/, '') === '';
@@ -613,6 +630,7 @@ class SefazManager {
         } else {
           // Chegou ao fim de todas as notas disponíveis: conta como tentativa (pausa curta ou repouso de 1h)
           registrarTentativaSemNovidade(state, '138');
+          concluirVarredura();
           storage.saveState(state);
           continuar = false;
         }

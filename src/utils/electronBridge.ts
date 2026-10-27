@@ -236,6 +236,7 @@ export const syncCompanySefaz = async (
     if (options.clearManifestations !== undefined) safeOptions.clearManifestations = Boolean(options.clearManifestations);
     if (options.targetNsu !== undefined && options.targetNsu !== null) safeOptions.targetNsu = String(options.targetNsu);
     if (options.forceSync !== undefined) safeOptions.forceSync = Boolean(options.forceSync);
+    if (options.varreduraCompleta !== undefined) safeOptions.varreduraCompleta = Boolean(options.varreduraCompleta);
   }
 
   return await ipc.invoke("sefaz:sync-company", { company: safeCompany, ...safeOptions });

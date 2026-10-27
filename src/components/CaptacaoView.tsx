@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { EmpresaSefaz, SefazSyncStatus, CnpjConsultaResult } from "../types";
 import { EmpresaSearchSelect } from "./EmpresaSearchSelect";
 import {
@@ -276,6 +276,9 @@ export default function CaptacaoView({
   const [routeFilter, setRouteFilter] = useState<"all" | "interestadual" | "interna">("all");
   const [tableMonthFilter, setTableMonthFilter] = useState<string>("all");
   const [dataInicioFilter, setDataInicioFilter] = useState<string>("");
+  const [mesBusca, setMesBusca] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  // Opções da sincronização que abriu o aviso de repouso, reaproveitadas no "Consultar Agora"
+  const opcoesForcadasRef = useRef<any>({});
   const [dataFimFilter, setDataFimFilter] = useState<string>("");
   const [sortColumn, setSortColumn] = useState<string>("dataEmissao");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -501,7 +504,8 @@ export default function CaptacaoView({
         if (comp !== tableMonthFilter) return false;
       }
       if (dataInicioFilter || dataFimFilter) {
-        const rawDate = comp ? `${comp}-01` : (n.dhEmi ? n.dhEmi.substring(0, 10) : "");
+        // Compara a data de emissão (antes usava o dia 1º da competência e escondia notas do período)
+        const rawDate = n.dhEmi && /^\d{4}-\d{2}-\d{2}/.test(n.dhEmi) ? n.dhEmi.substring(0, 10) : (comp ? `${comp}-01` : "");
         if (rawDate) {
           if (dataInicioFilter && rawDate < dataInicioFilter) return false;
           if (dataFimFilter && rawDate > dataFimFilter) return false;
@@ -556,6 +560,7 @@ export default function CaptacaoView({
 
     // Se estiver em período de repouso e não estiver forçando, abre modal de confirmação
     if (cooldownRemaining > 0 && !cleanOptions?.forceSync) {
+      opcoesForcadasRef.current = cleanOptions || {};
       setShowForceModal(true);
       return;
     }
@@ -939,6 +944,33 @@ export default function CaptacaoView({
   };
 
   // Abrir DANFE PDF
+  // Busca por mês: a SEFAZ não filtra NF-e por data e só guarda os últimos 90 dias, então o site relê a fila
+  // disponível e a tabela passa a mostrar só o mês escolhido
+  const handleBuscarMes = async () => {
+    if (!activeEmpresa || !/^\d{4}-\d{2}$/.test(mesBusca)) return;
+    const [ano, mes] = mesBusca.split("-").map(Number);
+    const rotulo = `${String(mes).padStart(2, "0")}/${ano}`;
+    const inicioJanela = new Date();
+    inicioJanela.setDate(inicioJanela.getDate() - 90);
+    const desde = inicioJanela.toLocaleDateString("pt-BR");
+    if (new Date(ano, mes - 1, 1) > new Date()) {
+      onNotify(`${rotulo} ainda não começou.`, "error");
+      return;
+    }
+    if (new Date(ano, mes, 0, 23, 59, 59) < inicioJanela) {
+      setTableMonthFilter(mesBusca);
+      onNotify(`A SEFAZ só disponibiliza NF-e dos últimos 90 dias (emitidas a partir de ${desde}). As notas de ${rotulo} não podem mais ser baixadas dela; a tabela mostra as que já estão salvas.`, "error");
+      return;
+    }
+    setTableMonthFilter(mesBusca);
+    setDataInicioFilter("");
+    setDataFimFilter("");
+    if (new Date(ano, mes - 1, 1) < inicioJanela) {
+      onNotify(`Buscando ${rotulo}: a SEFAZ só libera as notas emitidas a partir de ${desde}.`, "success");
+    }
+    await handleSyncSefaz({ varreduraCompleta: true });
+  };
+
   const avisarPendente = (nota: CapturedNfe) => {
     onNotify(`NF-e ${nota.nNF}: ${nota.situacao || "XML completo ainda não liberado"}. Ela será baixada automaticamente nas próximas sincronizações.`, "error");
   };
@@ -984,8 +1016,9 @@ export default function CaptacaoView({
       const m = getNotaCompetencia(n);
       if (m && m.length === 7) set.add(m);
     }
+    if (tableMonthFilter !== "all") set.add(tableMonthFilter);
     return Array.from(set).sort().reverse();
-  }, [capturedNotas]);
+  }, [capturedNotas, tableMonthFilter]);
 
   // Filtragem da tabela
   const filteredNotas = useMemo(() => {
@@ -1467,7 +1500,10 @@ export default function CaptacaoView({
           {cooldownRemaining > 0 && (
             <button
               type="button"
-              onClick={() => setShowForceModal(true)}
+              onClick={() => {
+                opcoesForcadasRef.current = {};
+                setShowForceModal(true);
+              }}
               className="vb-btn vb-btn-danger"
               title="Clique para ver detalhes do repouso ou forçar sincronização"
             >
@@ -1491,6 +1527,27 @@ export default function CaptacaoView({
             <Search size={13} className="text-[#003366]" />
             <span>Buscar por Chave</span>
           </button>
+
+          <div className="flex items-center gap-1">
+            <input
+              type="month"
+              value={mesBusca}
+              max={new Date().toISOString().slice(0, 7)}
+              onChange={(e) => setMesBusca(e.target.value)}
+              className="vb-input py-0.5"
+              title="Mês a buscar na SEFAZ"
+            />
+            <button
+              type="button"
+              onClick={handleBuscarMes}
+              disabled={!activeEmpresa || syncStatus.syncing || !mesBusca}
+              className="vb-btn"
+              title="Busca na SEFAZ todas as NF-e disponíveis (últimos 90 dias) e mostra só as do mês escolhido"
+            >
+              <Calendar size={13} className="text-[#003366]" />
+              <span>Buscar Mês</span>
+            </button>
+          </div>
 
           <button
             type="button"
@@ -2659,7 +2716,7 @@ export default function CaptacaoView({
                     type="button"
                     onClick={() => {
                       setShowForceModal(false);
-                      handleSyncSefaz({ forceSync: true });
+                      handleSyncSefaz({ ...opcoesForcadasRef.current, forceSync: true });
                     }}
                     className="vb-btn vb-btn-danger font-bold"
                   >
