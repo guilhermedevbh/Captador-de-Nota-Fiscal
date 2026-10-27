@@ -82,7 +82,7 @@ O Vite (porta 5173) encaminha as chamadas `/api` para o servidor (porta 3000).
 | `SESSAO_INATIVIDADE_MIN` | `120` | Encerra a sessão após esse tempo sem uso (`0` desativa) |
 | `FORCAR_HTTPS` | `1` no Railway | Redireciona HTTP para HTTPS quando atrás de proxy com TLS |
 | `CAPTACAO_DATA_INICIAL` | `2026-01-01` | Só capta notas emitidas a partir desta data (AAAA-MM-DD) |
-| `RETENCAO_HORAS` | `120` | Apaga os XMLs/PDFs captados após este número de horas (5 dias; `0` desativa) |
+| `RETENCAO_HORAS` | `0` | Apaga os XMLs/PDFs captados após este número de horas (`0` = nunca apaga) |
 
 As notas fiscais baixadas ficam em `<DATA_DIR>/sefaz_empresas` (ou na pasta escolhida em *Configurações → Armazenamento*).
 

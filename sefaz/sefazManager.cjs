@@ -13,6 +13,7 @@ const DacteService = require('./dacteService.cjs');
 const { getStateDatabase } = require('./stateDatabase.cjs');
 const { DATA_INICIAL_CAPTACAO, antesDoCorte } = require('./dataCorte.cjs');
 const { explicarCStat, validarCertificadoDaEmpresa } = require('./sefazStatus.cjs');
+const { lerComCache } = require('./cacheLeitura.cjs');
 
 // Respostas da SEFAZ que indicam indisponibilidade passageira (vale tentar de novo)
 const SEFAZ_INSTAVEL = new Set(['108', '109', '999']);
@@ -1261,11 +1262,12 @@ class SefazManager {
           const chNFe = match ? match[1] : entry.name;
           if (seenKeys.has(chNFe)) continue;
 
+          const meta = lerComCache('nfce', fullPath, () => {
           let content = '';
           try {
             content = fs.readFileSync(fullPath, 'utf8');
           } catch (e) {
-            continue;
+            return null;
           }
 
           let fileYearMonth = 'indefinido';
@@ -1289,7 +1291,9 @@ class SefazManager {
             if (mDate) fileYearMonth = mDate[1];
           }
 
-          const meta = this.extractXmlMetadata(content, entry.name, fileYearMonth, fullPath);
+          return this.extractXmlMetadata(content, entry.name, fileYearMonth, fullPath);
+          });
+          if (!meta) continue;
           meta.modelo = meta.modelo || '65';
 
           // Procura o PDF na mesma pasta (prioritário) ou legado
@@ -2785,11 +2789,12 @@ class SefazManager {
           const chCTe = match ? match[1] : entry.name;
           if (seenKeys.has(chCTe)) continue;
 
+          const meta = lerComCache('cte', fullPath, () => {
           let content = '';
           try {
             content = fs.readFileSync(fullPath, 'utf8');
           } catch (e) {
-            continue;
+            return null;
           }
 
           let fileYearMonth = 'indefinido';
@@ -2815,7 +2820,9 @@ class SefazManager {
             }
           }
 
-          const meta = this.extractCteMetadata(content, entry.name, fileYearMonth, fullPath);
+          return this.extractCteMetadata(content, entry.name, fileYearMonth, fullPath);
+          });
+          if (!meta) continue;
 
           // Procura o PDF na mesma pasta primeiro, depois no caminho legado
           const sameDirPdf = path.join(dir, `${chCTe}-cte-danfe.pdf`);

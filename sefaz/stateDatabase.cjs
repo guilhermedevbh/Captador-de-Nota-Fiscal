@@ -11,8 +11,8 @@ const SALT = 'cont_ai_salt_appdata_sqlite_v1';
 
 class StateDatabase {
   constructor(userDataDir) {
-    // O banco fica na pasta de dados do servidor (DATA_DIR, o volume persistente no Railway). Antes ficava em
-    // ./.cont_ai, fora do volume, e o controle de NSU, manifestações e notas baixadas se perdia a cada deploy
+    // Sem pasta informada, usa a pasta de dados do servidor (DATA_DIR, o volume persistente no Railway) antes do
+    // antigo ./.cont_ai, para o controle de NSU e manifestações nunca ficar fora do volume
     const pastaLegada = path.join(process.env.USERPROFILE || '.', '.cont_ai');
     this.userDataDir = userDataDir || process.env.DATA_DIR || process.env.APPDATA || pastaLegada;
     if (!fs.existsSync(this.userDataDir)) {
