@@ -15,6 +15,7 @@ const {
 } = require('./nfse/reportsNfse.cjs');
 const DANFSe = require('./nfse/danfse.cjs');
 const { gerarRelatorioExcel } = require('./sefaz/relatorioExcel.cjs');
+const { DATA_INICIAL_CAPTACAO } = require('./sefaz/dataCorte.cjs');
 const PDFLib = require('pdf-lib');
 const qrcode = require('qrcode-generator');
 
@@ -985,7 +986,8 @@ ipcMain.handle('settings:get', () => {
     defaultStorageDir,
     modelSchedulers: settings.modelSchedulers,
     scheduler: settings.scheduler,
-    nfseScheduler: settings.nfseScheduler
+    nfseScheduler: settings.nfseScheduler,
+    dataInicialCaptacao: DATA_INICIAL_CAPTACAO
   };
 });
 

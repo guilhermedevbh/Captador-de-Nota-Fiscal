@@ -953,8 +953,14 @@ export default function CaptacaoView({
     const inicioJanela = new Date();
     inicioJanela.setDate(inicioJanela.getDate() - 90);
     const desde = inicioJanela.toLocaleDateString("pt-BR");
+    const dataInicial = appSettings?.dataInicialCaptacao || "";
+    const inicioCaptacao = /^\d{4}-\d{2}-\d{2}$/.test(dataInicial) ? new Date(`${dataInicial}T00:00:00`) : null;
     if (new Date(ano, mes - 1, 1) > new Date()) {
       onNotify(`${rotulo} ainda não começou.`, "error");
+      return;
+    }
+    if (inicioCaptacao && new Date(ano, mes, 0, 23, 59, 59) < inicioCaptacao) {
+      onNotify(`A captação está configurada para notas emitidas a partir de ${inicioCaptacao.toLocaleDateString("pt-BR")}. ${rotulo} não é buscado na SEFAZ.`, "error");
       return;
     }
     if (new Date(ano, mes, 0, 23, 59, 59) < inicioJanela) {
@@ -1532,6 +1538,7 @@ export default function CaptacaoView({
             <input
               type="month"
               value={mesBusca}
+              min={appSettings?.dataInicialCaptacao ? appSettings.dataInicialCaptacao.slice(0, 7) : undefined}
               max={new Date().toISOString().slice(0, 7)}
               onChange={(e) => setMesBusca(e.target.value)}
               className="vb-input py-0.5"
