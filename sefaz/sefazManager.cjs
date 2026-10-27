@@ -65,6 +65,9 @@ function umaPorVez(fila, operacao, onProgress, executar) {
   return execucao;
 }
 
+// Dados do resumo (resNFe) guardados para listar a nota enquanto o XML completo não chega
+const resumoDe = (info) => ({ emitente: info.emitente || '', cnpjEmitente: info.cnpjEmitente || '', vNF: info.vNF || '0.00', dhEmi: info.dhEmi || '' });
+
 const cnpjDe = (company) => String((company && company.cnpj) || '').replace(/\D/g, '');
 
 function limparRepouso(state) {
@@ -461,7 +464,7 @@ class SefazManager {
         }
         if (retManif.success) {
           state.manifestedKeys = state.manifestedKeys || {};
-          state.manifestedKeys[ch] = { date: new Date().toISOString(), status: retManif.cStatEvento, nProt: retManif.nProt };
+          state.manifestedKeys[ch] = { date: new Date().toISOString(), status: retManif.cStatEvento, nProt: retManif.nProt, ...resumoDe(info) };
           if (state.resumosSemCiencia) delete state.resumosSemCiencia[ch];
           totalManifestadas++;
           await sleep(600); // Pausa suave entre manifestações de eventos
@@ -578,8 +581,11 @@ class SefazManager {
 
           if (parsed.type === 'resNFe') {
             const alreadyManifested = state.manifestedKeys && state.manifestedKeys[parsed.chNFe];
+            const info = { emitente: parsed.xNomeEmitente, cnpjEmitente: parsed.cnpjEmitente, vNF: parsed.vNF, dhEmi: parsed.dhEmi };
             if (!alreadyManifested) {
-              await manifestarResumo(parsed.chNFe, { emitente: parsed.xNomeEmitente, vNF: parsed.vNF, dhEmi: parsed.dhEmi });
+              await manifestarResumo(parsed.chNFe, info);
+            } else if (!alreadyManifested.emitente) {
+              Object.assign(alreadyManifested, resumoDe(info));
             }
           } else if (parsed.type === 'procNFe') {
             await salvarProcNFe(parsed, xmlContent);
@@ -789,7 +795,7 @@ class SefazManager {
     };
   }
 
-  listCompanyXmls({ cnpj, razaoSocial, yearMonth }) {
+  listCompanyXmls({ cnpj, razaoSocial, yearMonth, incluirResumos = false }) {
     const cleanCnpj = String(cnpj || '').replace(/\D/g, '');
     const companyDir = this.getCompanyDir(cleanCnpj, razaoSocial);
 
@@ -920,7 +926,54 @@ class SefazManager {
       this.saveMetadataCache(companyDir, cache, cleanCnpj);
     }
 
+    if (incluirResumos) {
+      for (const resumo of this.listarResumosNfe(cleanCnpj, seenKeys)) {
+        if (!yearMonth || yearMonth === 'all' || resumo.folder === yearMonth) xmlList.push(resumo);
+      }
+    }
+
     return xmlList;
+  }
+
+  // Notas que a SEFAZ já informou (resumo) mas cujo XML completo ainda não foi liberado ou baixado
+  listarResumosNfe(cleanCnpj, chavesNoDisco = new Set()) {
+    const state = this.stateDb.getState(cleanCnpj, 'nfe', {}) || {};
+    const manifestadas = state.manifestedKeys || {};
+    const baixadas = state.downloadedKeys || {};
+    const ufPorCodigo = Object.fromEntries(Object.entries(UF_TO_IBGE).map(([uf, cod]) => [cod, uf]));
+    const itens = [];
+    const adicionar = (ch, r, situacao) => {
+      if (!/^\d{44}$/.test(ch) || ch.slice(20, 22) !== '55' || baixadas[ch] || chavesNoDisco.has(ch) || antesDoCorte({ chave: ch, data: r.dhEmi })) return;
+      const dhEmi = String(r.dhEmi || '');
+      const data = dhEmi.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      itens.push({
+        name: `${ch}-resumo`,
+        fullPath: '',
+        folder: data ? `${data[1]}-${data[2]}` : `20${ch.slice(2, 4)}-${ch.slice(4, 6)}`,
+        chNFe: ch,
+        modelo: '55',
+        nNF: String(parseInt(ch.slice(25, 34), 10)),
+        serie: String(parseInt(ch.slice(22, 25), 10)),
+        dhEmi,
+        dhSaiEnt: '',
+        formattedDate: data ? `${data[3]}/${data[2]}/${data[1]}` : '',
+        emitente: r.emitente || 'Emitente (aguardando XML)',
+        cnpjEmitente: r.cnpjEmitente || ch.slice(6, 20),
+        ufRem: ufPorCodigo[ch.slice(0, 2)] || '',
+        destinatario: '',
+        cnpjDest: cleanCnpj,
+        ufDest: '',
+        vNF: parseFloat(r.vNF) || 0,
+        isInterestadual: false,
+        pendente: true,
+        situacao
+      });
+    };
+    for (const [ch, m] of Object.entries(manifestadas)) adicionar(ch, m || {}, 'Aguardando XML completo da SEFAZ');
+    for (const [ch, r] of Object.entries(state.resumosSemCiencia || {})) {
+      if (!manifestadas[ch]) adicionar(ch, r || {}, 'Ciência da Operação pendente');
+    }
+    return itens;
   }
 
   syncCompanyNfce(opcoes) {
@@ -1358,6 +1411,8 @@ class SefazManager {
         }
       }
     }
+
+    for (const resumo of this.listarResumosNfe(cleanCnpj)) monthsSet.add(resumo.folder);
 
     // 2. Lê pastas legadas em xmls/
     const xmlDir = path.join(companyDir, 'xmls');

@@ -89,6 +89,9 @@ export interface CapturedNfe {
   isInterestadual: boolean;
   content?: string;
   modelo?: string;
+  // Nota informada pela SEFAZ só com o resumo: o XML completo chega nas próximas sincronizações
+  pendente?: boolean;
+  situacao?: string;
 }
 
 interface CaptacaoViewProps {
@@ -469,13 +472,17 @@ export default function CaptacaoView({
     setLoadingXmls(true);
     try {
       const monthFilter = month === "all" ? undefined : month;
-      const xmls = await listCompanyXmls(cnpj, monthFilter, razaoSocial);
+      const xmls = await listCompanyXmls(cnpj, monthFilter, razaoSocial, true);
       // Filtra estritamente para Modelo 55 (NF-e Entradas), descartando Modelo 57 (CT-e) ou Modelo 65 (NFC-e)
       const nfeOnly = (xmls as CapturedNfe[]).filter((n) => {
         if (n.modelo && n.modelo !== "55") return false;
         if (n.name && n.name.toLowerCase().endsWith("-cte.xml")) return false;
         if (n.chNFe && n.chNFe.length === 44 && n.chNFe.substring(20, 22) === "57") return false;
         return true;
+      }).map((n) => {
+        // Nota só com resumo: a rota sai da UF do emitente (na chave) contra a UF da empresa
+        const ufEmpresa = activeEmpresa?.uf || "";
+        return n.pendente && ufEmpresa ? { ...n, ufDest: ufEmpresa, isInterestadual: !!n.ufRem && n.ufRem !== ufEmpresa } : n;
       });
       setCapturedNotas(nfeOnly);
     } catch (err: any) {
@@ -932,8 +939,13 @@ export default function CaptacaoView({
   };
 
   // Abrir DANFE PDF
+  const avisarPendente = (nota: CapturedNfe) => {
+    onNotify(`NF-e ${nota.nNF}: ${nota.situacao || "XML completo ainda não liberado"}. Ela será baixada automaticamente nas próximas sincronizações.`, "error");
+  };
+
   const handleOpenDanfe = async (nota: CapturedNfe) => {
     if (!activeEmpresa) return;
+    if (nota.pendente) return avisarPendente(nota);
     if (!nota.chNFe) {
       onNotify("Chave da NF-e não identificada.", "error");
       return;
@@ -947,6 +959,7 @@ export default function CaptacaoView({
   // Salvar XML individual
   const handleSaveXml = async (nota: CapturedNfe) => {
     if (!activeEmpresa) return;
+    if (nota.pendente) return avisarPendente(nota);
     const res = await saveSingleXml(activeEmpresa.cnpj, nota.chNFe, nota.folder);
     if (res.canceled) return;
     if (res.success) {
@@ -2016,7 +2029,12 @@ export default function CaptacaoView({
                             return null;
                           })()}
                         </td>
-                        <td className="font-semibold truncate max-w-[280px]" title={n.emitente}>
+                        <td className="font-semibold truncate max-w-[280px]" title={n.pendente ? `${n.emitente} - ${n.situacao}` : n.emitente}>
+                          {n.pendente && (
+                            <span className={`mr-1 px-1 rounded text-[9px] font-bold ${isSelected ? "bg-white/20 text-white" : "bg-[#fff4ce] text-[#8a5a00] border border-[#e0c060]"}`}>
+                              AGUARDANDO XML
+                            </span>
+                          )}
                           {n.emitente}
                         </td>
                         <td className="font-mono">
@@ -2087,7 +2105,12 @@ export default function CaptacaoView({
           {/* Paginação e Resumo da Grid */}
           <div className="bg-[#f0f0f0] border-t border-[#c0c0c0] px-3 py-1 flex items-center justify-between text-[11px] text-[#444444]">
             <div className="flex items-center gap-2">
-              <span>Exibindo <strong>{displayedNotas.length}</strong> de <strong>{filteredNotas.length}</strong> notas no filtro.</span>
+              <span>
+                Exibindo <strong>{displayedNotas.length}</strong> de <strong>{filteredNotas.length}</strong> notas no filtro.
+                {filteredNotas.some((n) => n.pendente) && (
+                  <> <strong className="text-[#8a5a00]">{filteredNotas.filter((n) => n.pendente).length}</strong> aguardando XML completo da SEFAZ.</>
+                )}
+              </span>
               {filteredNotas.length > displayLimit && (
                 <button
                   type="button"
