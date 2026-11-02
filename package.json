@@ -28,7 +28,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "nfe-danfe-pdf": "^1.0.3",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.2",
     "pdf-lib": "^1.17.1",
     "postcss": "^8.5.31",
     "qrcode-generator": "^2.0.4",
